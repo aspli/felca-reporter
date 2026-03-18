@@ -1,4 +1,4 @@
-// FELCA Reporter — background.js (v15 — params gerado do videoId, sem ytInitialData)
+// FELCA Reporter — background.js (v17 — usa /flag/flag com flagAction, suporte a subOpções)
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'reportVideo') {
@@ -18,7 +18,6 @@ async function handleReport(url, reasonData, userComment) {
     tab = await openTab(`https://www.youtube.com/watch?v=${videoId}`);
     await sleep(5000);
 
-    // Confirma que a aba carregou o vídeo certo
     const tabInfo = await chrome.tabs.get(tab.id);
     const tabVideoId = extractVideoId(tabInfo.url);
     if (tabVideoId !== videoId) {
@@ -43,21 +42,43 @@ async function handleReport(url, reasonData, userComment) {
 
 // ─── Roda DENTRO da aba do YouTube ───────────────────────────────────────
 async function runReportFlow(expectedVideoId, reasonKey, userComment) {
-  console.log(`🛡️ FELCA v15 — denunciando: ${expectedVideoId}`);
+  console.log(`🛡️ FELCA v17 — denunciando: ${expectedVideoId}, motivo: ${reasonKey}`);
 
-  // Validação: garante que esta aba é o vídeo certo
   const pageVideoId = new URLSearchParams(window.location.search).get('v');
   if (pageVideoId !== expectedVideoId) {
     return { success: false, error: `Página errada! Esperado: ${expectedVideoId}, Atual: ${pageVideoId}` };
   }
 
+  // Normaliza string removendo acentos
+  const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  // Keywords para escolher o item principal E a subopção (quando existir).
+  // Estrutura: { main: [...], sub: [...] }
+  // "sub" é usado para escolher dentro das subopções do item principal escolhido.
+  // Se não houver "sub", pega a primeira subopção válida (que tenha flagAction).
   const REASON_KEYWORDS = {
-    violent:     ['violento', 'repulsivo', 'violent', 'graphic'],
-    sexual:      ['sexual', 'nudez', 'nude'],
-    child_abuse: ['infantil', 'child', 'criança', 'menor', 'abuse', 'exploração'],
-    harmful:     ['perigoso', 'nocivo', 'harmful', 'dangerous', 'automutilação']
+    violent:     { main: ['violento', 'repulsivo'],        sub: [] },
+    sexual:      { main: ['sexual'],                       sub: ['explicita', 'nudez', 'sugestivo'] },
+    child_abuse: { main: ['abuso infantil', 'infantil'],   sub: [] },
+    harmful:     { main: ['perigosos', 'nocivos'],         sub: [] },
+    hateful:     { main: ['odio', 'abusivo', 'incitacao'], sub: [] },
+    harassment:  { main: ['assedio', 'bullying'],          sub: [] },
+    spam:        { main: ['spam', 'enganoso'],             sub: [] },
+    terrorism:   { main: ['terrorismo'],                   sub: [] },
+    misinfo:     { main: ['desinformacao'],                sub: [] },
+    legal:       { main: ['juridico'],                     sub: [] },
+    captions:    { main: ['legendas'],                     sub: [] },
   };
-  const keywords = REASON_KEYWORDS[reasonKey] || REASON_KEYWORDS.violent;
+
+  const reasonCfg  = REASON_KEYWORDS[reasonKey] || REASON_KEYWORDS.violent;
+  const mainKws    = reasonCfg.main;
+  const subKws     = reasonCfg.sub;
+
+  // Extrai flagAction de um renderer (pode estar em submitEndpoint.flagEndpoint.flagAction)
+  const getFlagAction = (r) => {
+    const fa = r?.submitEndpoint?.flagEndpoint?.flagAction;
+    return fa ? decodeURIComponent(fa) : null;
+  };
 
   try {
     // ── CONFIGURAÇÕES ────────────────────────────────────────────────────
@@ -110,138 +131,91 @@ async function runReportFlow(expectedVideoId, reasonKey, userComment) {
       }
     };
 
-    // ── GERA O PARAMS A PARTIR DO VIDEOID ────────────────────────────────
-    // O params é um protobuf binário codificado em base64.
-    // Estrutura: field 2 (tag 0x12) + comprimento + videoId UTF-8 + sufixo fixo.
-    // Sufixo fixo confirmado por engenharia reversa dos params reais do YouTube.
+    // ── PARAMS (sem sufixo = "Denunciar vídeo" com 11 opções) ────────────
     const buildParams = (videoId) => {
       const idBytes = new TextEncoder().encode(videoId);
-      const suffix  = new Uint8Array([0x40,0x01,0x58,0x00,0x70,0x01,0x78,0x01,0xd8,0x01,0x00,0xe8,0x01,0x00]);
-      const buf     = new Uint8Array(2 + idBytes.length + suffix.length);
-      buf[0] = 0x12;                          // field 2, wire type 2
-      buf[1] = idBytes.length;               // comprimento do videoId
-      buf.set(idBytes, 2);                   // bytes do videoId
-      buf.set(suffix, 2 + idBytes.length);   // sufixo fixo
+      const buf     = new Uint8Array(2 + idBytes.length);
+      buf[0] = 0x12;
+      buf[1] = idBytes.length;
+      buf.set(idBytes, 2);
       return btoa(String.fromCharCode(...buf));
     };
 
-    const reportParams = buildParams(expectedVideoId);
-    console.log(`📌 [${expectedVideoId}] Params gerado: ${reportParams}`);
-
-    // ── COLETA DE TOKENS ─────────────────────────────────────────────────
-    const collectTokens = (o, res = { flow: [], feedback: [] }, depth = 0) => {
-      if (!o || typeof o !== 'object' || depth > 25) return res;
-      if (Array.isArray(o)) { o.forEach(v => collectTokens(v, res, depth + 1)); return res; }
-
-      if (o.submitActionToken) {
-        const label = (
-          o.title?.runs?.[0]?.text ||
-          o.text?.runs?.[0]?.text  ||
-          o.label || ''
-        ).toLowerCase();
-        res.flow.push({ token: o.submitActionToken, label });
-      }
-      if (o.feedbackEndpoint?.feedbackToken) res.feedback.push(o.feedbackEndpoint.feedbackToken);
-      else if (typeof o.feedbackToken === 'string') res.feedback.push(o.feedbackToken);
-      else if (Array.isArray(o.feedbackTokens))     res.feedback.push(...o.feedbackTokens);
-
-      Object.values(o).forEach(v => collectTokens(v, res, depth + 1));
-      return res;
-    };
-
-    // ── PASSO 1: BUSCAR FORMULÁRIO ────────────────────────────────────────
+    // ── PASSO 1: GET_FORM ─────────────────────────────────────────────────
     console.log(`🚀 [${expectedVideoId}] Buscando formulário...`);
     const formResp = await fetch(`/youtubei/v1/flag/get_form?key=${apiKey}&prettyPrint=false`, {
       method: 'POST', credentials: 'include', headers,
-      body: JSON.stringify({ context, params: reportParams })
+      body: JSON.stringify({ context, params: buildParams(expectedVideoId) })
     });
 
     if (!formResp.ok) {
       const errText = await formResp.text().catch(() => '');
-      console.error(`❌ Formulário HTTP ${formResp.status}:`, errText.slice(0, 300));
-      return { success: false, error: `Erro no formulário: HTTP ${formResp.status}` };
+      return { success: false, error: `Erro no formulário: HTTP ${formResp.status} — ${errText.slice(0, 200)}` };
     }
 
     const formJson = await formResp.json();
-    const tokens   = collectTokens(formJson);
-    console.log(`🎫 [${expectedVideoId}] Tokens:`, tokens);
+    const items    = formJson
+      ?.actions?.[0]
+      ?.openPopupAction?.popup
+      ?.reportFormModalRenderer
+      ?.optionsSupportedRenderers?.optionsRenderer?.items || [];
 
-    let chosenToken        = null;
-    let finalFeedbackToken = tokens.feedback[0] || null;
-
-    if (!finalFeedbackToken && tokens.flow.length > 0) {
-      chosenToken = tokens.flow.find(t => keywords.some(kw => t.label.includes(kw)))?.token
-                   ?? tokens.flow[0].token;
-      console.log(`🎯 [${expectedVideoId}] Motivo: "${chosenToken}"`);
-    }
-
-    if (!chosenToken && !finalFeedbackToken) {
+    if (items.length === 0) {
       return { success: false, error: 'Formulário sem opções de denúncia.' };
     }
 
-    // ── PASSO 2: SELECIONAR MOTIVO ────────────────────────────────────────
-    let commentToken = null;
-    if (chosenToken && !finalFeedbackToken) {
-      console.log(`➡️ [${expectedVideoId}] Selecionando motivo...`);
-      const flow1Resp = await fetch(`/youtubei/v1/flow?key=${apiKey}&prettyPrint=false`, {
-        method: 'POST', credentials: 'include', headers,
-        body: JSON.stringify({
-          context,
-          subject:           { videoId: expectedVideoId },
-          submitActionToken: chosenToken
-        })
-      });
-      if (flow1Resp.ok) {
-        const f1 = collectTokens(await flow1Resp.json());
-        console.log(`🎫 [${expectedVideoId}] Tokens flow1:`, f1);
-        if (f1.feedback.length > 0) finalFeedbackToken = f1.feedback[0];
-        else commentToken = f1.flow.find(t => t.token !== chosenToken)?.token ?? f1.flow[0]?.token ?? null;
+    // ── ESCOLHE ITEM PRINCIPAL ────────────────────────────────────────────
+    const mainItem = items
+      .map(i => i.optionSelectableItemRenderer || i)
+      .find(r => mainKws.some(kw => norm(r.text?.simpleText || '').includes(kw)))
+      ?? (items[0].optionSelectableItemRenderer || items[0]);
+
+    console.log(`🎯 [${expectedVideoId}] Item principal: "${mainItem.text?.simpleText}"`);
+
+    // ── RESOLVE flagAction: direto ou via subopção ────────────────────────
+    let flagAction = getFlagAction(mainItem);
+
+    if (!flagAction && mainItem.subOptions?.length) {
+      // Item tem subopções — escolhe pela keyword "sub", senão pega a primeira válida
+      const subRenderers = mainItem.subOptions
+        .map(s => s.optionSelectableItemRenderer || s)
+        .filter(r => getFlagAction(r)); // só as que têm flagAction
+
+      const chosen = subKws.length
+        ? subRenderers.find(r => subKws.some(kw => norm(r.text?.simpleText || '').includes(kw)))
+        : null;
+
+      const subItem = chosen ?? subRenderers[0];
+      if (subItem) {
+        flagAction = getFlagAction(subItem);
+        console.log(`📌 [${expectedVideoId}] Subopção escolhida: "${subItem.text?.simpleText}"`);
       }
     }
 
-    // ── PASSO 3: COMENTÁRIO ───────────────────────────────────────────────
-    if (commentToken && !finalFeedbackToken) {
-      console.log(`📝 [${expectedVideoId}] Enviando comentário...`);
-      const flow2Resp = await fetch(`/youtubei/v1/flow?key=${apiKey}&prettyPrint=false`, {
-        method: 'POST', credentials: 'include', headers,
-        body: JSON.stringify({
-          context,
-          subject:           { videoId: expectedVideoId },
-          submitActionToken: commentToken,
-          userComment
-        })
-      });
-      if (flow2Resp.ok) {
-        const f2 = collectTokens(await flow2Resp.json());
-        if (f2.feedback.length > 0) finalFeedbackToken = f2.feedback[0];
-      }
+    if (!flagAction) {
+      return { success: false, error: `flagAction não encontrado para "${mainItem.text?.simpleText}"` };
     }
 
-    if (!finalFeedbackToken) {
-      return { success: false, error: 'Token de confirmação não obtido.' };
-    }
+    console.log(`🔑 [${expectedVideoId}] flagAction: ${flagAction.slice(0, 40)}...`);
 
-    // ── PASSO 4: ENVIO FINAL ──────────────────────────────────────────────
-    console.log(`🎯 [${expectedVideoId}] Enviando denúncia final...`);
-    const feedbackBody = {
-      context,
-      feedbackTokens: [finalFeedbackToken],
-      isFlagAction:   true,
-    };
-    if (userComment) feedbackBody.userComment = userComment;
-
-    const feedbackResp = await fetch(`/youtubei/v1/feedback?key=${apiKey}&prettyPrint=false`, {
+    // ── PASSO 2: ENVIO via /flag/flag ─────────────────────────────────────
+    console.log(`🚀 [${expectedVideoId}] Enviando denúncia...`);
+    const flagResp = await fetch(`/youtubei/v1/flag/flag?key=${apiKey}&prettyPrint=false`, {
       method: 'POST', credentials: 'include', headers,
-      body: JSON.stringify(feedbackBody)
+      body: JSON.stringify({
+        context,
+        action:      flagAction,
+        userComment: userComment || '',
+      })
     });
 
-    if (feedbackResp.ok || feedbackResp.status === 204) {
-      console.log(`✅ [${expectedVideoId}] Denúncia enviada!`);
+    if (flagResp.ok || flagResp.status === 204) {
+      console.log(`✅ [${expectedVideoId}] Denúncia enviada com sucesso!`);
       return { success: true };
     }
 
-    const errBody = await feedbackResp.text().catch(() => '');
-    return { success: false, error: `Erro no envio final: HTTP ${feedbackResp.status}` };
+    const errBody = await flagResp.text().catch(() => '');
+    return { success: false, error: `Erro no envio: HTTP ${flagResp.status} — ${errBody.slice(0, 200)}` };
 
   } catch (err) {
     console.error(`❌ [${expectedVideoId}] Exceção:`, err);
@@ -260,7 +234,6 @@ function extractVideoId(url) {
   return null;
 }
 
-// Listener filtrado por tabId — sem condição de corrida
 function openTab(url) {
   return new Promise((resolve) => {
     chrome.tabs.create({ url, active: false }, (tab) => {
