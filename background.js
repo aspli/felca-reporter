@@ -7,6 +7,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
+
+  if (msg.action === 'startReportBatch') {
+    handleReportBatch(msg.jobId, msg.urls, msg.reasonData, msg.userComment)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 });
 
 async function handleReport(url, reasonData, userComment) {
@@ -38,6 +45,120 @@ async function handleReport(url, reasonData, userComment) {
       await sleep(1000);
       try { await chrome.tabs.remove(tab.id); } catch (_) {}
     }
+  }
+}
+
+async function handleReportBatch(jobId, urls, reasonData, userComment) {
+  if (!Array.isArray(urls) || !urls.length) {
+    return { success: false, error: 'Nenhuma URL para processar' };
+  }
+
+  await setReportJobState(jobId, {
+    running: true,
+    paused: false,
+    cancelled: false,
+    total: urls.length,
+    done: 0,
+    okCount: 0,
+    failCount: 0,
+    currentUrl: '',
+    status: 'Iniciando...'
+  });
+
+  let okCount = 0;
+  let failCount = 0;
+
+  for (let index = 0; index < urls.length; index++) {
+    const gate = await waitForBatchGate(jobId);
+    if (gate === 'cancelled') {
+      const cancelledJob = await setReportJobState(jobId, {
+        running: false,
+        paused: false,
+        cancelled: true,
+        status: 'Cancelado',
+        currentUrl: '',
+        done: index,
+        okCount,
+        failCount,
+        finishedAt: Date.now()
+      });
+      return {
+        success: false,
+        cancelled: true,
+        jobId,
+        total: urls.length,
+        okCount,
+        failCount,
+        reportJob: cancelledJob
+      };
+    }
+
+    const url = urls[index];
+    const step = index + 1;
+
+    await setReportJobState(jobId, {
+      currentUrl: url,
+      status: `Processando ${step} de ${urls.length}...`,
+      done: index,
+      okCount,
+      failCount,
+      running: true,
+      cancelled: false
+    });
+
+    const result = await handleReport(url, reasonData, userComment);
+    if (result.success) okCount++;
+    else failCount++;
+
+    await saveToHistory(url, !!result.success, reasonData.label, result.error);
+
+    await setReportJobState(jobId, {
+      currentUrl: url,
+      status: result.success ? 'Denúncia enviada' : 'Falha na denúncia',
+      done: step,
+      okCount,
+      failCount,
+      running: true,
+      cancelled: false,
+      lastError: result.success ? null : result.error,
+      lastMessage: result.success ? 'Concluído com sucesso' : result.error
+    });
+  }
+
+  const finalJob = await setReportJobState(jobId, {
+    running: false,
+    currentUrl: '',
+    status: 'Finalizado',
+    done: urls.length,
+    okCount,
+    failCount,
+    finishedAt: Date.now()
+  });
+
+  return {
+    success: true,
+    jobId,
+    total: urls.length,
+    okCount,
+    failCount,
+    reportJob: finalJob
+  };
+}
+
+async function waitForBatchGate(jobId) {
+  for (;;) {
+    const { reportJob = null } = await chrome.storage.local.get('reportJob');
+    if (!reportJob || reportJob.jobId !== jobId) return 'cancelled';
+    if (reportJob.cancelled) return 'cancelled';
+    if (!reportJob.paused) return 'continue';
+
+    await setReportJobState(jobId, {
+      running: true,
+      paused: true,
+      cancelled: false,
+      status: 'Pausado'
+    });
+    await sleep(500);
   }
 }
 
@@ -247,6 +368,25 @@ async function runReportFlow(expectedVideoId, reasonKey, userComment) {
     console.error(`❌ [${expectedVideoId}] Exceção:`, err);
     return { success: false, error: err.message };
   }
+}
+
+async function setReportJobState(jobId, patch) {
+  const { reportJob = {} } = await chrome.storage.local.get('reportJob');
+  const next = {
+    ...reportJob,
+    jobId,
+    ...patch,
+    updatedAt: Date.now()
+  };
+  await chrome.storage.local.set({ reportJob: next });
+  return next;
+}
+
+async function saveToHistory(url, success, reason, error) {
+  const { reportHistory = [] } = await chrome.storage.local.get('reportHistory');
+  reportHistory.unshift({ url, success, reason, error: error || null, ts: Date.now() });
+  if (reportHistory.length > 200) reportHistory.splice(200);
+  await chrome.storage.local.set({ reportHistory });
 }
 
 // ─── Utilitários ──────────────────────────────────────────────────────────
