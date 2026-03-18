@@ -31,7 +31,15 @@ const historyList = document.getElementById('historyList');
 const btnClear = document.getElementById('btnClear');
 const urlPillBox = document.getElementById('urlPillBox');
 
+// Integration elements
+const endpointUrlInput = document.getElementById('endpointUrl');
+const btnFetch = document.getElementById('btnFetch');
+const fetchStatus = document.getElementById('fetchStatus');
+const fetchedList = document.getElementById('fetchedList');
+const btnAddAll = document.getElementById('btnAddAll');
+
 let urlItems = [];
+let fetchedVideos = [];
 
 // Tabs
 document.querySelectorAll('.tab').forEach((tab) => {
@@ -46,6 +54,135 @@ document.querySelectorAll('.tab').forEach((tab) => {
 		document.getElementById('page-' + tab.dataset.tab).classList.add('active');
 		if (tab.dataset.tab === 'history') renderHistory();
 	});
+});
+
+// Integration: Restore saved endpoint URL
+chrome.storage.local.get(['savedEndpointUrl'], (res) => {
+	if (res.savedEndpointUrl) {
+		endpointUrlInput.value = res.savedEndpointUrl;
+	}
+});
+
+endpointUrlInput.addEventListener('change', () => {
+	chrome.storage.local.set({ savedEndpointUrl: endpointUrlInput.value.trim() });
+});
+
+// Integration: Fetch videos from endpoint
+btnFetch.addEventListener('click', async () => {
+	const url = endpointUrlInput.value.trim();
+	if (!url) {
+		showFetchStatus('error', 'Informe a URL do endpoint');
+		return;
+	}
+
+	btnFetch.disabled = true;
+	showFetchStatus('loading', 'Buscando vídeos...');
+	fetchedList.innerHTML = '';
+	btnAddAll.style.display = 'none';
+	fetchedVideos = [];
+
+	try {
+		const response = await fetch(url, { method: 'GET' });
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		}
+
+		const data = await response.json();
+		const videos = data.videos || [];
+
+		if (!Array.isArray(videos) || videos.length === 0) {
+			showFetchStatus('success', 'Nenhum vídeo encontrado no endpoint');
+			btnFetch.disabled = false;
+			return;
+		}
+
+		// Validate and categorize videos
+		const validVideos = [];
+		const invalidVideos = [];
+		const duplicateVideos = [];
+
+		for (const videoUrl of videos) {
+			const isValid = parseUrls(videoUrl).filter(Boolean).length > 0;
+			const isDuplicate = urlItems.includes(videoUrl) || validVideos.includes(videoUrl);
+
+			if (!isValid) {
+				invalidVideos.push(videoUrl);
+			} else if (isDuplicate) {
+				duplicateVideos.push(videoUrl);
+			} else {
+				validVideos.push(videoUrl);
+			}
+		}
+
+		fetchedVideos = validVideos;
+
+		// Render fetched list
+		renderFetchedList(validVideos, invalidVideos, duplicateVideos);
+
+		const parts = [];
+		if (validVideos.length) parts.push(`${validVideos.length} válido(s)`);
+		if (duplicateVideos.length) parts.push(`${duplicateVideos.length} duplicado(s)`);
+		if (invalidVideos.length) parts.push(`${invalidVideos.length} inválido(s)`);
+
+		showFetchStatus('success', `Encontrados: ${parts.join(', ')}`);
+
+		if (validVideos.length > 0) {
+			btnAddAll.style.display = 'block';
+		}
+	} catch (err) {
+		showFetchStatus('error', `Erro: ${err.message}`);
+	} finally {
+		btnFetch.disabled = false;
+	}
+});
+
+function showFetchStatus(type, message) {
+	fetchStatus.className = 'fetch-status show ' + type;
+	fetchStatus.textContent = message;
+}
+
+function renderFetchedList(valid, invalid, duplicates) {
+	const items = [];
+
+	for (const url of valid) {
+		items.push(`<div class="fetched-item"><span class="url">${escapeHtml(url)}</span><span class="status">novo</span></div>`);
+	}
+	for (const url of duplicates) {
+		items.push(`<div class="fetched-item"><span class="url">${escapeHtml(url)}</span><span class="status skip">duplicado</span></div>`);
+	}
+	for (const url of invalid) {
+		items.push(`<div class="fetched-item"><span class="url">${escapeHtml(url)}</span><span class="status skip" style="background:rgba(255,45,85,.15);color:var(--accent)">inválido</span></div>`);
+	}
+
+	fetchedList.innerHTML = items.join('');
+}
+
+function escapeHtml(text) {
+	const div = document.createElement('div');
+	div.textContent = text;
+	return div.innerHTML;
+}
+
+// Integration: Add all fetched videos to main list
+btnAddAll.addEventListener('click', () => {
+	if (fetchedVideos.length === 0) return;
+
+	const count = fetchedVideos.length;
+	urlItems.push(...fetchedVideos);
+	syncUrls();
+	renderUrlPills();
+
+	// Clear integration state
+	fetchedVideos = [];
+	fetchedList.innerHTML = '';
+	btnAddAll.style.display = 'none';
+	showFetchStatus('success', `${count} vídeo(s) adicionados à lista de denúncias!`);
+
+	// Switch to report tab
+	document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+	document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+	document.querySelector('[data-tab="report"]').classList.add('active');
+	document.getElementById('page-report').classList.add('active');
 });
 
 // Restaura estado salvo

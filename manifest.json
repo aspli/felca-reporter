@@ -4,7 +4,7 @@
 	"version": "4.0.1",
 	"description": "Denuncie vídeos +18 sem restrição de idade no YouTube, conforme a Lei nº 15.211/2025 (Lei Felca).",
 	"permissions": ["scripting", "storage", "tabs"],
-	"host_permissions": ["https://www.youtube.com/*"],
+	"host_permissions": ["https://www.youtube.com/*", "http://localhost/*", "https://localhost/*"],
 	"action": {
 		"default_popup": "popup.html",
 		"default_icon": {
