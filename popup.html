@@ -103,10 +103,75 @@
     textarea:focus, select:focus { border-color: var(--accent); }
     textarea::placeholder { color: var(--muted); }
 
-    .url-area {
-      min-height: 90px; font-size: 12px;
-      padding: 10px 12px; resize: vertical; line-height: 1.6;
+    .url-input {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      outline: none;
+      font-family: 'Barlow', sans-serif;
+      font-size: 12px;
+      padding: 10px 12px;
+      transition: border-color .2s;
     }
+    .url-input:focus { border-color: var(--accent); }
+    .url-input::placeholder { color: var(--muted); }
+
+    .url-pill-box {
+      margin-top: 8px;
+      min-height: 90px;
+      max-height: 140px;
+      overflow-y: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 6px;
+    }
+    .url-pill-box::-webkit-scrollbar { width: 3px; }
+    .url-pill-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+    .url-pill {
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,45,85,.12);
+      border: 1px solid rgba(255,45,85,.35);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .url-pill-text {
+      max-width: 250px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .url-pill-remove {
+      border: none;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+    }
+    .url-pill-remove:hover { opacity: .8; }
+
+    .url-pill-empty {
+      width: 100%;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 4px;
+    }
+
     .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
     select {
@@ -252,9 +317,12 @@
 <div class="page active" id="page-report">
 
   <div class="field-label">URLs dos vídeos</div>
-  <textarea id="urlInput" class="url-area"
-    placeholder="Cole as URLs aqui (uma por linha):&#10;https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
-  <div class="hint">Uma URL por linha — processa todas em sequência</div>
+  <input id="urlInput" class="url-input" type="text"
+    placeholder="Cole uma URL e pressione Enter" />
+  <div id="urlPillBox" class="url-pill-box">
+    <div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>
+  </div>
+  <div class="hint">Pressione Enter a cada URL — cada linha vira um pill</div>
 
   <div class="spacer"></div>
   <div class="field-label">Motivo da denúncia</div>
