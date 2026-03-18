@@ -1,10 +1,4 @@
-// FELCA Reporter — background.js
-//
-// Fluxo confirmado via DevTools (dois flow calls):
-//   1. get_panel          → obtém tokens por categoria
-//   2. flow (1º call)     → seleciona o motivo — SEM texto
-//   3. flow (2º call)     → tela de comentário — COM o texto do usuário
-//   4. feedback           → envia a denúncia final
+// FELCA Reporter — background.js (v15 — params gerado do videoId, sem ytInitialData)
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action === 'reportVideo') {
@@ -22,10 +16,18 @@ async function handleReport(url, reasonData, userComment) {
   let tab = null;
   try {
     tab = await openTab(`https://www.youtube.com/watch?v=${videoId}`);
-    await sleep(4000);
+    await sleep(5000);
+
+    // Confirma que a aba carregou o vídeo certo
+    const tabInfo = await chrome.tabs.get(tab.id);
+    const tabVideoId = extractVideoId(tabInfo.url);
+    if (tabVideoId !== videoId) {
+      return { success: false, error: `Aba errada (esperado: ${videoId}, carregado: ${tabVideoId})` };
+    }
 
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
+      world: 'MAIN',
       func: runReportFlow,
       args: [videoId, reasonData.key, userComment || '']
     });
@@ -33,208 +35,246 @@ async function handleReport(url, reasonData, userComment) {
     return results?.[0]?.result || { success: false, error: 'Sem retorno do script' };
   } finally {
     if (tab) {
-      await sleep(500);
+      await sleep(1000);
       try { await chrome.tabs.remove(tab.id); } catch (_) {}
     }
   }
 }
 
-async function runReportFlow(videoId, reasonKey, userComment) {
+// ─── Roda DENTRO da aba do YouTube ───────────────────────────────────────
+async function runReportFlow(expectedVideoId, reasonKey, userComment) {
+  console.log(`🛡️ FELCA v15 — denunciando: ${expectedVideoId}`);
+
+  // Validação: garante que esta aba é o vídeo certo
+  const pageVideoId = new URLSearchParams(window.location.search).get('v');
+  if (pageVideoId !== expectedVideoId) {
+    return { success: false, error: `Página errada! Esperado: ${expectedVideoId}, Atual: ${pageVideoId}` };
+  }
+
   const REASON_KEYWORDS = {
-    violent:     ['violento', 'repulsivo', 'violent'],
-    sexual:      ['sexual'],
-    child_abuse: ['infantil', 'child', 'criança', 'menor', 'abuse'],
-    harmful:     ['perigoso', 'nocivo', 'harmful', 'dangerous', 'perigosos']
+    violent:     ['violento', 'repulsivo', 'violent', 'graphic'],
+    sexual:      ['sexual', 'nudez', 'nude'],
+    child_abuse: ['infantil', 'child', 'criança', 'menor', 'abuse', 'exploração'],
+    harmful:     ['perigoso', 'nocivo', 'harmful', 'dangerous', 'automutilação']
   };
   const keywords = REASON_KEYWORDS[reasonKey] || REASON_KEYWORDS.violent;
 
   try {
-    // Extrai config InnerTube da página
-    const cfg = window.ytcfg?.data_ || {};
-    let apiKey = cfg.INNERTUBE_API_KEY;
-    let clientVersion = cfg.INNERTUBE_CLIENT_VERSION;
-    let visitorData = cfg.VISITOR_DATA || '';
+    // ── CONFIGURAÇÕES ────────────────────────────────────────────────────
+    const cfg           = window.ytcfg?.data_ || {};
+    const apiKey        = cfg.INNERTUBE_API_KEY;
+    const clientVersion = cfg.INNERTUBE_CLIENT_VERSION || '2.20260317.05.00';
+    const visitorData   = cfg.VISITOR_DATA || '';
+    const sessionIndex  = cfg.SESSION_INDEX !== undefined ? String(cfg.SESSION_INDEX) : '0';
+    const pageId        = cfg.DELEGATED_SESSION_ID || '';
 
-    if (!apiKey || !clientVersion) {
-      for (const s of document.querySelectorAll('script:not([src])')) {
-        const t = s.textContent;
-        if (!apiKey) { const m = t.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]{10,})"/); if (m) apiKey = m[1]; }
-        if (!clientVersion) { const m = t.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/); if (m) clientVersion = m[1]; }
-        if (!visitorData) { const m = t.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/); if (m) visitorData = m[1]; }
-        if (apiKey && clientVersion) break;
-      }
-    }
-    if (!apiKey) return { success: false, error: 'API key não encontrada — verifique login' };
+    if (!apiKey) return { success: false, error: 'API key não encontrada — faça login no YouTube' };
 
-    // SAPISIDHASH: confirmado formato SHA-1("{ts} {sapisid} {origin}")_u
+    // ── AUTENTICAÇÃO ─────────────────────────────────────────────────────
     const getCookie = (name) => {
-      const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-      return m ? decodeURIComponent(m[1]) : null;
+      const v = `; ${document.cookie}`;
+      const p = v.split(`; ${name}=`);
+      return p.length === 2 ? decodeURIComponent(p.pop().split(';').shift()) : '';
     };
-    const sapisid  = getCookie('SAPISID')           || getCookie('__Secure-3PAPISID') || '';
-    const sapisid1 = getCookie('__Secure-1PAPISID') || sapisid;
-    const sapisid3 = getCookie('__Secure-3PAPISID') || sapisid;
+    const sapisid = getCookie('SAPISID') || getCookie('__Secure-3PAPISID');
     if (!sapisid) return { success: false, error: 'Sessão não encontrada — faça login no YouTube' };
 
-    const sha1 = async (str) => {
+    const ts     = Math.floor(Date.now() / 1000);
+    const origin = 'https://www.youtube.com';
+    const sha1   = async (str) => {
       const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(str));
       return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
     };
+    const hash = await sha1(`${ts} ${sapisid} ${origin}`);
 
-    const ts = Math.floor(Date.now() / 1000);
-    const origin = 'https://www.youtube.com';
-    const authHeader = [
-      `SAPISIDHASH ${ts}_${await sha1(`${ts} ${sapisid} ${origin}`)}_u`,
-      `SAPISID1PHASH ${ts}_${await sha1(`${ts} ${sapisid1} ${origin}`)}_u`,
-      `SAPISID3PHASH ${ts}_${await sha1(`${ts} ${sapisid3} ${origin}`)}_u`
-    ].join(' ');
+    const headers = {
+      'Content-Type':             'application/json',
+      'Authorization':            `SAPISIDHASH ${ts}_${hash}`,
+      'X-Origin':                 origin,
+      'X-Youtube-Client-Name':    '1',
+      'X-Youtube-Client-Version': clientVersion,
+      'X-Goog-AuthUser':          sessionIndex,
+    };
+    if (visitorData) headers['X-Goog-Visitor-Id'] = visitorData;
+    if (pageId)      headers['X-Goog-PageId']     = pageId;
 
     const context = {
       client: {
-        clientName: 'WEB', clientVersion,
-        hl: 'pt', gl: 'BR', visitorData,
-        userAgent: navigator.userAgent,
-        utcOffsetMinutes: -180
+        clientName:       'WEB',
+        clientVersion:    clientVersion,
+        hl:               'pt',
+        gl:               'BR',
+        userAgent:        navigator.userAgent,
+        timeZone:         Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo',
+        utcOffsetMinutes: -new Date().getTimezoneOffset(),
       }
     };
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': authHeader,
-      'X-Origin': origin,
-      'X-Goog-AuthUser': '0',
-      'X-Goog-Visitor-Id': visitorData,
-      'X-Youtube-Client-Name': '1',
-      'X-Youtube-Client-Version': clientVersion,
-      'X-Youtube-Bootstrap-Logged-In': 'true'
+    // ── GERA O PARAMS A PARTIR DO VIDEOID ────────────────────────────────
+    // O params é um protobuf binário codificado em base64.
+    // Estrutura: field 2 (tag 0x12) + comprimento + videoId UTF-8 + sufixo fixo.
+    // Sufixo fixo confirmado por engenharia reversa dos params reais do YouTube.
+    const buildParams = (videoId) => {
+      const idBytes = new TextEncoder().encode(videoId);
+      const suffix  = new Uint8Array([0x40,0x01,0x58,0x00,0x70,0x01,0x78,0x01,0xd8,0x01,0x00,0xe8,0x01,0x00]);
+      const buf     = new Uint8Array(2 + idBytes.length + suffix.length);
+      buf[0] = 0x12;                          // field 2, wire type 2
+      buf[1] = idBytes.length;               // comprimento do videoId
+      buf.set(idBytes, 2);                   // bytes do videoId
+      buf.set(suffix, 2 + idBytes.length);   // sufixo fixo
+      return btoa(String.fromCharCode(...buf));
     };
 
-    // Utilitário para percorrer a resposta e coletar tokens
-    const collectTokens = (o, result = [], depth = 0) => {
-      if (!o || typeof o !== 'object' || depth > 20) return result;
-      if (Array.isArray(o)) { o.forEach(v => collectTokens(v, result, depth + 1)); return result; }
+    const reportParams = buildParams(expectedVideoId);
+    console.log(`📌 [${expectedVideoId}] Params gerado: ${reportParams}`);
+
+    // ── COLETA DE TOKENS ─────────────────────────────────────────────────
+    const collectTokens = (o, res = { flow: [], feedback: [] }, depth = 0) => {
+      if (!o || typeof o !== 'object' || depth > 25) return res;
+      if (Array.isArray(o)) { o.forEach(v => collectTokens(v, res, depth + 1)); return res; }
+
       if (o.submitActionToken) {
-        const label = (o.title?.runs?.[0]?.text || o.text?.runs?.[0]?.text || o.label || '').toLowerCase();
-        result.push({ token: o.submitActionToken, label });
+        const label = (
+          o.title?.runs?.[0]?.text ||
+          o.text?.runs?.[0]?.text  ||
+          o.label || ''
+        ).toLowerCase();
+        res.flow.push({ token: o.submitActionToken, label });
       }
-      Object.values(o).forEach(v => collectTokens(v, result, depth + 1));
-      return result;
+      if (o.feedbackEndpoint?.feedbackToken) res.feedback.push(o.feedbackEndpoint.feedbackToken);
+      else if (typeof o.feedbackToken === 'string') res.feedback.push(o.feedbackToken);
+      else if (Array.isArray(o.feedbackTokens))     res.feedback.push(...o.feedbackTokens);
+
+      Object.values(o).forEach(v => collectTokens(v, res, depth + 1));
+      return res;
     };
 
-    // ── get_panel: obtém o formulário com os tokens por categoria ──────────
-    let chosenToken = null;
+    // ── PASSO 1: BUSCAR FORMULÁRIO ────────────────────────────────────────
+    console.log(`🚀 [${expectedVideoId}] Buscando formulário...`);
+    const formResp = await fetch(`/youtubei/v1/flag/get_form?key=${apiKey}&prettyPrint=false`, {
+      method: 'POST', credentials: 'include', headers,
+      body: JSON.stringify({ context, params: reportParams })
+    });
 
-    const panelPayloads = [
-      { context, subject: { videoId } },
-      { context, videoId },
-      { context, videoId, flaggedContentType: 'VIDEO' }
-    ];
-
-    for (const payload of panelPayloads) {
-      try {
-        const resp = await fetch('/youtubei/v1/get_panel?prettyPrint=false', {
-          method: 'POST', credentials: 'include', headers,
-          body: JSON.stringify(payload)
-        });
-        if (!resp.ok) continue;
-
-        const tokens = collectTokens(await resp.json());
-        if (!tokens.length) continue;
-
-        chosenToken = tokens.find(t => keywords.some(kw => t.label.includes(kw)))?.token
-                   || tokens[0].token;
-        break;
-      } catch (_) { continue; }
+    if (!formResp.ok) {
+      const errText = await formResp.text().catch(() => '');
+      console.error(`❌ Formulário HTTP ${formResp.status}:`, errText.slice(0, 300));
+      return { success: false, error: `Erro no formulário: HTTP ${formResp.status}` };
     }
 
-    // ── flow 1º call: seleciona o motivo — sem texto ───────────────────────
-    // Confirmado nos DevTools: primeiro flow não carrega userComment
+    const formJson = await formResp.json();
+    const tokens   = collectTokens(formJson);
+    console.log(`🎫 [${expectedVideoId}] Tokens:`, tokens);
+
+    let chosenToken        = null;
+    let finalFeedbackToken = tokens.feedback[0] || null;
+
+    if (!finalFeedbackToken && tokens.flow.length > 0) {
+      chosenToken = tokens.flow.find(t => keywords.some(kw => t.label.includes(kw)))?.token
+                   ?? tokens.flow[0].token;
+      console.log(`🎯 [${expectedVideoId}] Motivo: "${chosenToken}"`);
+    }
+
+    if (!chosenToken && !finalFeedbackToken) {
+      return { success: false, error: 'Formulário sem opções de denúncia.' };
+    }
+
+    // ── PASSO 2: SELECIONAR MOTIVO ────────────────────────────────────────
     let commentToken = null;
-
-    if (chosenToken) {
-      try {
-        const resp = await fetch('/youtubei/v1/flow?prettyPrint=false', {
-          method: 'POST', credentials: 'include', headers,
-          body: JSON.stringify({ context, subject: { videoId }, submitActionToken: chosenToken })
-        });
-        if (resp.ok) {
-          const tokens = collectTokens(await resp.json());
-          // O próximo token é o da tela de comentário
-          commentToken = tokens.find(t => t.token !== chosenToken)?.token || null;
-        }
-      } catch (_) {}
-    }
-
-    // ── flow 2º call: tela de comentário — aqui entra o texto ─────────────
-    // Confirmado nos DevTools: segundo flow carrega o campo com o texto
-    let finalToken = commentToken || chosenToken;
-
-    if (commentToken) {
-      try {
-        const body = {
+    if (chosenToken && !finalFeedbackToken) {
+      console.log(`➡️ [${expectedVideoId}] Selecionando motivo...`);
+      const flow1Resp = await fetch(`/youtubei/v1/flow?key=${apiKey}&prettyPrint=false`, {
+        method: 'POST', credentials: 'include', headers,
+        body: JSON.stringify({
           context,
-          subject: { videoId },
-          submitActionToken: commentToken
-        };
-        // O texto vai neste call — campo userComment observado no protocolo
-        if (userComment) body.userComment = userComment;
-
-        const resp = await fetch('/youtubei/v1/flow?prettyPrint=false', {
-          method: 'POST', credentials: 'include', headers,
-          body: JSON.stringify(body)
-        });
-        if (resp.ok) {
-          const tokens = collectTokens(await resp.json());
-          const next = tokens.find(t => t.token !== commentToken)?.token;
-          if (next) finalToken = next;
-        }
-      } catch (_) {}
+          subject:           { videoId: expectedVideoId },
+          submitActionToken: chosenToken
+        })
+      });
+      if (flow1Resp.ok) {
+        const f1 = collectTokens(await flow1Resp.json());
+        console.log(`🎫 [${expectedVideoId}] Tokens flow1:`, f1);
+        if (f1.feedback.length > 0) finalFeedbackToken = f1.feedback[0];
+        else commentToken = f1.flow.find(t => t.token !== chosenToken)?.token ?? f1.flow[0]?.token ?? null;
+      }
     }
 
-    // ── feedback: envia a denúncia final ──────────────────────────────────
+    // ── PASSO 3: COMENTÁRIO ───────────────────────────────────────────────
+    if (commentToken && !finalFeedbackToken) {
+      console.log(`📝 [${expectedVideoId}] Enviando comentário...`);
+      const flow2Resp = await fetch(`/youtubei/v1/flow?key=${apiKey}&prettyPrint=false`, {
+        method: 'POST', credentials: 'include', headers,
+        body: JSON.stringify({
+          context,
+          subject:           { videoId: expectedVideoId },
+          submitActionToken: commentToken,
+          userComment
+        })
+      });
+      if (flow2Resp.ok) {
+        const f2 = collectTokens(await flow2Resp.json());
+        if (f2.feedback.length > 0) finalFeedbackToken = f2.feedback[0];
+      }
+    }
+
+    if (!finalFeedbackToken) {
+      return { success: false, error: 'Token de confirmação não obtido.' };
+    }
+
+    // ── PASSO 4: ENVIO FINAL ──────────────────────────────────────────────
+    console.log(`🎯 [${expectedVideoId}] Enviando denúncia final...`);
     const feedbackBody = {
       context,
-      feedbackTokens: [finalToken],
-      isFlagAction: true
+      feedbackTokens: [finalFeedbackToken],
+      isFlagAction:   true,
     };
     if (userComment) feedbackBody.userComment = userComment;
 
-    const feedbackResp = await fetch('/youtubei/v1/feedback?prettyPrint=false', {
+    const feedbackResp = await fetch(`/youtubei/v1/feedback?key=${apiKey}&prettyPrint=false`, {
       method: 'POST', credentials: 'include', headers,
       body: JSON.stringify(feedbackBody)
     });
 
-    if (feedbackResp.ok || feedbackResp.status === 204) return { success: true };
+    if (feedbackResp.ok || feedbackResp.status === 204) {
+      console.log(`✅ [${expectedVideoId}] Denúncia enviada!`);
+      return { success: true };
+    }
 
-    const errTxt = await feedbackResp.text().catch(() => '');
-    return { success: false, error: `HTTP ${feedbackResp.status}: ${errTxt.slice(0, 200)}` };
+    const errBody = await feedbackResp.text().catch(() => '');
+    return { success: false, error: `Erro no envio final: HTTP ${feedbackResp.status}` };
 
   } catch (err) {
+    console.error(`❌ [${expectedVideoId}] Exceção:`, err);
     return { success: false, error: err.message };
   }
 }
 
+// ─── Utilitários ──────────────────────────────────────────────────────────
+
 function extractVideoId(url) {
   try {
     const u = new URL(url);
-    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
+    if (u.hostname === 'youtu.be')          return u.pathname.slice(1).split('?')[0];
     if (u.hostname.includes('youtube.com')) return u.searchParams.get('v');
   } catch (_) {}
   return null;
 }
 
+// Listener filtrado por tabId — sem condição de corrida
 function openTab(url) {
   return new Promise((resolve) => {
     chrome.tabs.create({ url, active: false }, (tab) => {
+      const tabId = tab.id;
       const timeout = setTimeout(() => {
         chrome.tabs.onUpdated.removeListener(listener);
         resolve(tab);
       }, 15000);
-      function listener(id, changeInfo) {
-        if (id === tab.id && changeInfo.status === 'complete') {
+      function listener(id, changeInfo, updatedTab) {
+        if (id !== tabId) return;
+        if (changeInfo.status === 'complete') {
           clearTimeout(timeout);
           chrome.tabs.onUpdated.removeListener(listener);
-          resolve(tab);
+          resolve(updatedTab);
         }
       }
       chrome.tabs.onUpdated.addListener(listener);
