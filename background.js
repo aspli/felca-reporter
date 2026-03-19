@@ -396,3 +396,141 @@ function openTab(url) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'extractChannelVideos') {
+    extractViaBackgroundTab(request.url)
+      .then(videos => sendResponse({ videos }))
+      .catch(error => sendResponse({ error: error.message }));
+    return true; // Mantém a porta aberta para a resposta assíncrona
+  }
+});
+
+async function extractViaBackgroundTab(channelUrl) {
+  let url = channelUrl.split('?')[0];
+  if (!url.endsWith('/videos')) {
+    url += url.endsWith('/') ? 'videos' : '/videos';
+  }
+
+  // 1. Abre uma aba do canal silenciosamente (em segundo plano)
+  const tab = await chrome.tabs.create({ url, active: false });
+
+  // 2. Espera a página terminar de carregar
+  await new Promise((resolve) => {
+    chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
+      if (tabId === tab.id && info.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    });
+  });
+
+  // 3. Injeta a função extratora DENTRO da página do YouTube
+  try {
+    const injectionResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractVideosInPageContext
+    });
+
+    // 4. Fecha a aba fantasma
+    chrome.tabs.remove(tab.id);
+
+    // 5. Retorna os resultados para o popup
+    const result = injectionResults[0].result;
+    if (result.error) throw new Error(result.error);
+    
+    return result.videos;
+
+  } catch (err) {
+    chrome.tabs.remove(tab.id); // Garante que a aba fecha em caso de erro
+    throw err;
+  }
+}
+
+// ATENÇÃO: Esta função roda injetada DENTRO da página do YouTube. 
+// O escopo dela é isolado, então ela tem acesso ao window e ytcfg reais da página.
+async function extractVideosInPageContext() {
+  try {
+    // Usamos as variáveis globais do próprio YouTube para garantir autorização
+    const ytInitialData = window.ytInitialData;
+    const apiKey = window.ytcfg.get('INNERTUBE_API_KEY');
+    const clientName = window.ytcfg.get('INNERTUBE_CONTEXT_CLIENT_NAME');
+    const clientVersion = window.ytcfg.get('INNERTUBE_CONTEXT_CLIENT_VERSION');
+    const visitorData = window.ytcfg.get('VISITOR_DATA') || window.ytcfg.get('VISITOR_INFO1_LIVE');
+
+    if (!ytInitialData || !apiKey) {
+      return { error: 'Não foi possível ler os dados da página do canal.' };
+    }
+
+    let videoIds = [];
+    let continuationToken = null;
+
+    const tabs = ytInitialData.contents?.twoColumnBrowseResultsRenderer?.tabs;
+    if (!tabs) return { error: 'Estrutura do canal não reconhecida.' };
+
+    let videosTab = tabs.find(tab => tab.tabRenderer?.title === 'Vídeos' || tab.tabRenderer?.title === 'Videos') 
+                 || tabs.find(tab => tab.tabRenderer?.content?.richGridRenderer);
+
+    if (!videosTab || !videosTab.tabRenderer?.content) return { error: 'Nenhum vídeo encontrado.' };
+
+    const contents = videosTab.tabRenderer.content.richGridRenderer.contents;
+
+    const processContents = (items) => {
+      for (const item of items) {
+        if (item.richItemRenderer && item.richItemRenderer.content.videoRenderer) {
+          videoIds.push(item.richItemRenderer.content.videoRenderer.videoId);
+        } else if (item.continuationItemRenderer) {
+          continuationToken = item.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+        }
+      }
+    };
+
+    processContents(contents);
+
+    // Paginação real e contínua
+    while (continuationToken) {
+      const payload = {
+        context: {
+          client: {
+            clientName: clientName,
+            clientVersion: clientVersion,
+            visitorData: visitorData,
+            hl: "pt-BR",
+            gl: "BR"
+          }
+        },
+        continuation: continuationToken
+      };
+
+      // O fetch agora acontece do domínio www.youtube.com, burlando completamente os bloqueios
+      const res = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${apiKey}&prettyPrint=false`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-YouTube-Client-Name': String(clientName),
+          'X-YouTube-Client-Version': clientVersion
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      continuationToken = null; // Reseta por precaução
+
+      if (data && data.onResponseReceivedActions) {
+        const appendActions = data.onResponseReceivedActions.find(
+          action => action.appendContinuationItemsAction
+        );
+        
+        if (appendActions && appendActions.appendContinuationItemsAction.continuationItems) {
+          processContents(appendActions.appendContinuationItemsAction.continuationItems);
+        }
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 500)); // Delay sutil
+    }
+
+    return { videos: videoIds };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
