@@ -429,6 +429,7 @@ async function extractViaBackgroundTab(channelUrl) {
   try {
     const injectionResults = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
+      world: "MAIN",
       func: extractVideosInPageContext
     });
 
