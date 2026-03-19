@@ -1,22 +1,21 @@
 // FELCA Reporter — background.js (v17 — usa /flag/flag com flagAction, suporte a subOpções)
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  
+  if (msg.action === 'reportVideo') {
+    handleReport(msg.url, msg.reasonData, msg.userComment)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extractChannelVideos') {
-    
-    // Começa a extrair, mas não prende o popup
-    extractViaBackgroundTab(request.url)
+  if (msg.action === 'extractChannelVideos') {
+    extractViaBackgroundTab(msg.url)
       .then(videos => {
-        // Salva no banco de dados local por segurança
         chrome.storage.local.set({ lastExtractedVideos: videos });
-        
-        // Avisa ativamente o popup que terminou (se o popup estiver aberto)
         chrome.runtime.sendMessage({ 
           action: 'extractionComplete', 
           videos: videos 
-        }).catch(() => {
-          // Ignora o erro se o usuário tiver fechado o popup
-          console.log("Popup estava fechado, mas os vídeos foram salvos no storage.");
-        });
+        }).catch(() => {});
       })
       .catch(error => {
         chrome.runtime.sendMessage({ 
@@ -25,15 +24,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }).catch(() => {});
       });
 
-    // Avisa o Chrome que recebemos a mensagem, mas não vamos segurar a porta aberta
     sendResponse({ status: "started" }); 
-  }
-
-  if (msg.action === 'reportVideo') {
-    handleReport(msg.url, msg.reasonData, msg.userComment)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
+    return true; // Mantém a porta aberta
   }
 
   if (msg.action === 'startReportBatch') {
@@ -42,7 +34,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true;
   }
-
 });
 
 async function handleReport(url, reasonData, userComment) {
@@ -450,10 +441,8 @@ async function extractViaBackgroundTab(channelUrl) {
     url += url.endsWith('/') ? 'videos' : '/videos';
   }
 
-  // 1. Abre uma aba do canal silenciosamente (em segundo plano)
   const tab = await chrome.tabs.create({ url, active: false });
 
-  // 2. Espera a página terminar de carregar
   await new Promise((resolve) => {
     chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
       if (tabId === tab.id && info.status === 'complete') {
@@ -463,26 +452,107 @@ async function extractViaBackgroundTab(channelUrl) {
     });
   });
 
-  // 3. Injeta a função extratora DENTRO da página do YouTube
   try {
     const injectionResults = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      world: "MAIN",
+      world: "MAIN", 
       func: extractVideosInPageContext
     });
 
-    // 4. Fecha a aba fantasma
     chrome.tabs.remove(tab.id);
 
-    // 5. Retorna os resultados para o popup
     const result = injectionResults[0].result;
     if (result.error) throw new Error(result.error);
     
     return result.videos;
 
   } catch (err) {
-    chrome.tabs.remove(tab.id); // Garante que a aba fecha em caso de erro
+    chrome.tabs.remove(tab.id); 
     throw err;
+  }
+}
+
+// ─── Roda DENTRO da aba do YouTube para extrair vídeos ───────────────────
+async function extractVideosInPageContext() {
+  try {
+    const ytInitialData = window.ytInitialData;
+    const apiKey = window.ytcfg.get('INNERTUBE_API_KEY');
+    const clientName = window.ytcfg.get('INNERTUBE_CONTEXT_CLIENT_NAME');
+    const clientVersion = window.ytcfg.get('INNERTUBE_CONTEXT_CLIENT_VERSION');
+    const visitorData = window.ytcfg.get('VISITOR_DATA') || window.ytcfg.get('VISITOR_INFO1_LIVE');
+
+    if (!ytInitialData || !apiKey) {
+      return { error: 'Não foi possível ler os dados da página do canal.' };
+    }
+
+    let videoIds = [];
+    let continuationToken = null;
+
+    const tabs = ytInitialData.contents?.twoColumnBrowseResultsRenderer?.tabs;
+    if (!tabs) return { error: 'Estrutura do canal não reconhecida.' };
+
+    let videosTab = tabs.find(tab => tab.tabRenderer?.title === 'Vídeos' || tab.tabRenderer?.title === 'Videos') 
+                 || tabs.find(tab => tab.tabRenderer?.content?.richGridRenderer);
+
+    if (!videosTab || !videosTab.tabRenderer?.content) return { error: 'Nenhum vídeo encontrado.' };
+
+    const contents = videosTab.tabRenderer.content.richGridRenderer.contents;
+
+    const processContents = (items) => {
+      for (const item of items) {
+        if (item.richItemRenderer && item.richItemRenderer.content.videoRenderer) {
+          videoIds.push(item.richItemRenderer.content.videoRenderer.videoId);
+        } else if (item.continuationItemRenderer) {
+          continuationToken = item.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+        }
+      }
+    };
+
+    processContents(contents);
+
+    while (continuationToken) {
+      const payload = {
+        context: {
+          client: {
+            clientName: clientName,
+            clientVersion: clientVersion,
+            visitorData: visitorData,
+            hl: "pt-BR",
+            gl: "BR"
+          }
+        },
+        continuation: continuationToken
+      };
+
+      const res = await fetch(`https://www.youtube.com/youtubei/v1/browse?key=${apiKey}&prettyPrint=false`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-YouTube-Client-Name': String(clientName),
+          'X-YouTube-Client-Version': clientVersion
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      continuationToken = null; 
+
+      if (data && data.onResponseReceivedActions) {
+        const appendActions = data.onResponseReceivedActions.find(
+          action => action.appendContinuationItemsAction
+        );
+        
+        if (appendActions && appendActions.appendContinuationItemsAction.continuationItems) {
+          processContents(appendActions.appendContinuationItemsAction.continuationItems);
+        }
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+    }
+
+    return { videos: videoIds };
+  } catch (err) {
+    return { error: err.message };
   }
 }
 
