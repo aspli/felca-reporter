@@ -465,49 +465,51 @@
   <div class="tab" data-tab="history">📋 Histórico</div>
 </div>
 
-<!-- Aba: Denunciar -->
 <div class="page active" id="page-report">
 
-  <div class="channel-extractor" style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ccc;">
-  <h4>Extrair vídeos de um Canal</h4>
-  <input type="text" id="channelUrl" placeholder="Ex: https://youtube.com/@NomeDoCanal" style="width: 100%; margin-bottom: 5px;"/>
-  <button id="extractBtn" style="width: 100%;">Extrair Todos os Vídeos</button>
-  <div id="extractStatus" style="font-size: 12px; margin-top: 5px; color: #f0e8e8;"></div>
-</div>
+  <div class="channel-extractor" style="margin-top: 15px; padding-top: 10px; border-bottom: 1px solid var(--border); padding-bottom: 15px; margin-bottom: 15px;">
+    <div class="field-label" style="margin-bottom: 5px;">Extrair vídeos de um Canal</div>
+    <input type="text" id="channelUrl" class="url-input" placeholder="Ex: https://youtube.com/@NomeDoCanal" style="width: 100%; margin-bottom: 8px;"/>
+    <button id="extractBtn" class="btn-status" style="width: 100%;">Extrair Todos os Vídeos</button>
+    <div id="extractStatus" style="font-size: 11px; margin-top: 6px; color: var(--muted); text-align: center;"></div>
+  </div>
 
   <div class="field-label">URLs dos vídeos</div>
-  <input id="urlInput" class="url-input" type="text"
-    placeholder="Cole uma URL e pressione Enter" />
+  <input id="urlInput" class="url-input" type="text" placeholder="Cole uma URL e pressione Enter" />
+  
   <div id="urlPillBox" class="url-pill-box">
     <div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>
   </div>
-  <div class="hint">Pressione Enter a cada URL — cada linha vira um pill</div>
-
-    <div class="spacer"></div>
-    <div class="field-label">Motivo da denúncia</div>
-    <select id="reasonSelect">
-      <option value="violent">Conteúdo violento ou repulsivo</option>
-      <option value="sexual">Conteúdo sexual</option>
-      <option value="child_abuse">Abuso infantil ⭐ Lei Felca</option>
-      <option value="harmful">Atos perigosos ou nocivos</option>
-    </select>
-
-    <div class="msg-wrap">
-      <div class="msg-header">
-        <div class="field-label" style="margin-bottom:0">Mensagem adicional</div>
-        <button class="msg-toggle" id="msgToggle">restaurar padrão</button>
-      </div>
-      <textarea id="msgInput" class="msg-area" maxlength="500"
-        placeholder="Mensagem enviada junto com a denúncia..."></textarea>
-      <div class="msg-footer">
-        <span class="char-count" id="charCount">0 / 500</span>
-      </div>
-    </div>
-
-    <button id="btnReport" class="btn-report">🚨 Denunciar todos os vídeos</button>
+  
+  <div class="url-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+    <div class="hint" style="margin-top: 0;">Pressione Enter a cada URL — cada linha vira um pill</div>
+    <button class="btn-clear" id="btnClearJob" type="button">Limpar fila</button>
   </div>
 
-  <div id="reportStatusCard" class="status-card">
+  <div class="spacer"></div>
+  
+  <div class="field-label">Motivo da denúncia</div>
+  <select id="reasonSelect">
+    <option value="violent">Conteúdo violento ou repulsivo</option>
+    <option value="sexual">Conteúdo sexual</option>
+    <option value="child_abuse">Abuso infantil ⭐ Lei Felca</option>
+    <option value="harmful">Atos perigosos ou nocivos</option>
+  </select>
+
+  <div class="msg-wrap">
+    <div class="msg-header">
+      <div class="field-label" style="margin-bottom:0">Mensagem adicional</div>
+      <button class="msg-toggle" id="msgToggle">restaurar padrão</button>
+    </div>
+    <textarea id="msgInput" class="msg-area" maxlength="500" placeholder="Mensagem enviada junto com a denúncia..."></textarea>
+    <div class="msg-footer">
+      <span class="char-count" id="charCount">0 / 500</span>
+    </div>
+  </div>
+
+  <button id="btnReport" class="btn-report">🚨 Denunciar todos os vídeos</button>
+
+  <div id="reportStatusCard" class="status-card" style="display: none;">
     <div class="status-row">
       <div class="status-title">Estado atual</div>
       <div id="reportStatusBadge" class="status-badge">parado</div>
@@ -520,7 +522,6 @@
       <button id="btnTogglePause" class="btn-status" type="button">Pausar</button>
       <button id="btnCancelJob" class="btn-status danger" type="button">Cancelar</button>
       <button id="btnBackEditor" class="btn-status" type="button">Voltar</button>
-      <button id="btnClearJob" class="btn-status success" type="button">Limpar fila</button>
     </div>
   </div>
 
@@ -544,10 +545,7 @@
     <strong>Como funciona:</strong> Cada vídeo é aberto em segundo plano e a denúncia é enviada usando sua sessão do YouTube. A mensagem acima é incluída no relatório. Nenhum dado vai a terceiros.
   </div>
 
-</div>
-
-<!-- Aba: Integração -->
-<div class="page" id="page-integration">
+</div> <div class="page" id="page-integration">
   <div class="field-label">Endpoint de vídeos</div>
   <div class="integration-box">
     <div class="field-label" style="margin-bottom:8px">URL do endpoint</div>
@@ -568,7 +566,6 @@
   </div>
 </div>
 
-<!-- Aba: Histórico -->
 <div class="page" id="page-history">
   <div class="history-header">
     <div class="history-title">Denúncias realizadas</div>
