@@ -29,6 +29,10 @@
       font-family: 'Barlow', sans-serif;
       font-size: 14px;
     }
+    body.is-executing .report-editor,
+    body.job-finished .report-editor {
+      display: none;
+    }
 
     /* Header */
     .header {
@@ -93,21 +97,79 @@
       color: var(--muted); margin-bottom: 7px;
     }
 
-    textarea, select {
+    textarea, select, .url-input {
       width: 100%; background: var(--card);
       border: 1px solid var(--border); border-radius: var(--radius);
       color: var(--text); outline: none;
       font-family: 'Barlow', sans-serif;
       transition: border-color .2s;
     }
-    textarea:focus, select:focus { border-color: var(--accent); }
-    textarea::placeholder { color: var(--muted); }
+    textarea:focus, select:focus, .url-input:focus { border-color: var(--accent); }
+    textarea::placeholder, .url-input::placeholder { color: var(--muted); }
 
-    .url-area {
-      min-height: 90px; font-size: 12px;
+    .url-input {
+      font-size: 12px;
       padding: 10px 12px; resize: vertical; line-height: 1.6;
     }
+    .url-pill-box {
+      margin-top: 8px;
+      min-height: 90px;
+      max-height: 160px;
+      overflow-y: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      gap: 6px;
+    }
+    .url-pill-box::-webkit-scrollbar { width: 3px; }
+    .url-pill-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+    .url-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 100%;
+      border: 1px solid rgba(255,45,85,.35);
+      background: rgba(255,45,85,.12);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .url-pill-text {
+      max-width: 250px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .url-pill-remove {
+      border: none;
+      background: transparent;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .url-pill-remove:hover { opacity: .8; }
+    .url-pill-empty {
+      width: 100%;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 4px;
+    }
     .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+
+    .url-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
 
     select {
       font-size: 13px; font-weight: 500;
@@ -161,6 +223,109 @@
     .btn-report.running {
       background: var(--card); border: 1px solid var(--accent);
       color: var(--accent); box-shadow: none;
+    }
+
+    .status-card {
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 12px;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .status-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+    }
+    .status-badge {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .status-badge.running {
+      color: var(--yellow);
+      border-color: rgba(255,193,7,.3);
+      background: rgba(255,193,7,.08);
+    }
+    .status-badge.paused {
+      color: var(--yellow);
+      border-color: rgba(255,193,7,.3);
+      background: rgba(255,193,7,.08);
+    }
+    .status-badge.done {
+      color: var(--green);
+      border-color: rgba(0,214,143,.3);
+      background: rgba(0,214,143,.08);
+    }
+    .status-badge.error {
+      color: var(--accent);
+      border-color: rgba(255,45,85,.3);
+      background: rgba(255,45,85,.08);
+    }
+    .status-meta {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.5;
+      display: grid;
+      gap: 4px;
+    }
+    .status-current {
+      word-break: break-all;
+    }
+    .status-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    .btn-status {
+      flex: 1;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: border-color .15s, background .15s, color .15s, opacity .15s;
+    }
+    .btn-status:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-status:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+    .btn-status.danger:hover:not(:disabled) {
+      border-color: var(--accent);
+      background: rgba(255,45,85,.08);
+      color: var(--accent);
+    }
+    .btn-status.success:hover:not(:disabled) {
+      border-color: var(--green);
+      background: rgba(0,214,143,.08);
+      color: var(--green);
     }
 
     /* Progress */
@@ -250,34 +415,58 @@
 
 <!-- Aba: Denunciar -->
 <div class="page active" id="page-report">
-
-  <div class="field-label">URLs dos vídeos</div>
-  <textarea id="urlInput" class="url-area"
-    placeholder="Cole as URLs aqui (uma por linha):&#10;https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
-  <div class="hint">Uma URL por linha — processa todas em sequência</div>
-
-  <div class="spacer"></div>
-  <div class="field-label">Motivo da denúncia</div>
-  <select id="reasonSelect">
-    <option value="violent">Conteúdo violento ou repulsivo</option>
-    <option value="sexual">Conteúdo sexual</option>
-    <option value="child_abuse">Abuso infantil ⭐ Lei Felca</option>
-    <option value="harmful">Atos perigosos ou nocivos</option>
-  </select>
-
-  <div class="msg-wrap">
-    <div class="msg-header">
-      <div class="field-label" style="margin-bottom:0">Mensagem adicional</div>
-      <button class="msg-toggle" id="msgToggle">restaurar padrão</button>
+  <div class="report-editor">
+    <div class="field-label">URLs dos vídeos</div>
+    <input id="urlInput" class="url-input" type="text"
+      placeholder="Cole uma URL e pressione Enter" />
+    <div id="urlPillBox" class="url-pill-box">
+      <div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>
     </div>
-    <textarea id="msgInput" class="msg-area" maxlength="500"
-      placeholder="Mensagem enviada junto com a denúncia..."></textarea>
-    <div class="msg-footer">
-      <span class="char-count" id="charCount">0 / 500</span>
+    <div class="url-actions">
+      <button class="btn-clear" id="btnClearList" type="button">Limpar lista</button>
     </div>
+    <div class="hint">Pressione Enter para adicionar. Cole várias URLs em linhas separadas se preferir.</div>
+
+    <div class="spacer"></div>
+    <div class="field-label">Motivo da denúncia</div>
+    <select id="reasonSelect">
+      <option value="violent">Conteúdo violento ou repulsivo</option>
+      <option value="sexual">Conteúdo sexual</option>
+      <option value="child_abuse">Abuso infantil ⭐ Lei Felca</option>
+      <option value="harmful">Atos perigosos ou nocivos</option>
+    </select>
+
+    <div class="msg-wrap">
+      <div class="msg-header">
+        <div class="field-label" style="margin-bottom:0">Mensagem adicional</div>
+        <button class="msg-toggle" id="msgToggle">restaurar padrão</button>
+      </div>
+      <textarea id="msgInput" class="msg-area" maxlength="500"
+        placeholder="Mensagem enviada junto com a denúncia..."></textarea>
+      <div class="msg-footer">
+        <span class="char-count" id="charCount">0 / 500</span>
+      </div>
+    </div>
+
+    <button id="btnReport" class="btn-report">🚨 Denunciar todos os vídeos</button>
   </div>
 
-  <button id="btnReport" class="btn-report">🚨 Denunciar todos os vídeos</button>
+  <div id="reportStatusCard" class="status-card">
+    <div class="status-row">
+      <div class="status-title">Estado atual</div>
+      <div id="reportStatusBadge" class="status-badge">parado</div>
+    </div>
+    <div class="status-meta">
+      <div id="reportStatusSummary">Nenhuma denúncia em andamento.</div>
+      <div id="reportStatusCurrent" class="status-current"></div>
+    </div>
+    <div class="status-actions">
+      <button id="btnTogglePause" class="btn-status" type="button">Pausar</button>
+      <button id="btnCancelJob" class="btn-status danger" type="button">Cancelar</button>
+      <button id="btnBackEditor" class="btn-status" type="button">Voltar</button>
+      <button id="btnClearJob" class="btn-status success" type="button">Limpar fila</button>
+    </div>
+  </div>
 
   <div id="progressWrap" class="progress-wrap">
     <div class="progress-bg"><div id="progressFill" class="progress-fill"></div></div>
