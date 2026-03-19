@@ -28,6 +28,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Avisa o Chrome que recebemos a mensagem, mas não vamos segurar a porta aberta
     sendResponse({ status: "started" }); 
   }
+
+  if (msg.action === 'reportVideo') {
+    handleReport(msg.url, msg.reasonData, msg.userComment)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.action === 'startReportBatch') {
+    handleReportBatch(msg.jobId, msg.urls, msg.reasonData, msg.userComment)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
 });
 
 async function handleReport(url, reasonData, userComment) {
