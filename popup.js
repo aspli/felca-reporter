@@ -454,3 +454,61 @@ btnReport.addEventListener('click', async () => {
 function sleep(ms) {
 	return new Promise((r) => setTimeout(r, ms));
 }
+
+// 1. O que acontece quando clica no botão
+document.getElementById('extractBtn').addEventListener('click', () => {
+  const channelUrl = document.getElementById('channelUrl').value.trim();
+  const statusDiv = document.getElementById('extractStatus');
+  
+  if (!channelUrl.includes('youtube.com/')) {
+    statusDiv.textContent = 'Por favor, insira uma URL de canal válida.';
+    return;
+  }
+
+  statusDiv.textContent = 'Extraindo vídeos em segundo plano... Pode demorar, não feche o navegador.';
+  document.getElementById('extractBtn').disabled = true;
+
+  // Apenas envia a ordem, não espera a resposta aqui!
+  chrome.runtime.sendMessage({ action: 'extractChannelVideos', url: channelUrl });
+});
+
+// 2. O ouvinte que fica esperando o background avisar que terminou
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const statusDiv = document.getElementById('extractStatus');
+  const urlsTextarea = document.getElementById('urlInput');
+
+  if (request.action === 'extractionComplete') {
+    document.getElementById('extractBtn').disabled = false;
+    statusDiv.textContent = `${request.videos.length} vídeos extraídos com sucesso!`;
+    
+    const urls = request.videos.map(id => `https://www.youtube.com/watch?v=${id}`);
+    const currentText = urlsTextarea.value.trim();
+    urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
+    
+    // Limpa o backup
+    chrome.storage.local.remove('lastExtractedVideos');
+  }
+
+  if (request.action === 'extractionError') {
+    document.getElementById('extractBtn').disabled = false;
+    statusDiv.textContent = `Erro: ${request.error}`;
+  }
+});
+
+// 3. Recupera caso o usuário feche e abra o popup no meio do processo
+chrome.storage.local.get(['lastExtractedVideos'], (result) => {
+  if (result.lastExtractedVideos && result.lastExtractedVideos.length > 0) {
+    const urlsTextarea = document.getElementById('urlInput');
+    const statusDiv = document.getElementById('extractStatus');
+    
+    const urls = result.lastExtractedVideos.map(id => `https://www.youtube.com/watch?v=${id}`);
+    const currentText = urlsTextarea.value.trim();
+    urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
+    
+    if (statusDiv) {
+      statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados da extração anterior!`;
+    }
+    
+    chrome.storage.local.remove('lastExtractedVideos');
+  }
+});
