@@ -395,97 +395,111 @@ btnClearJob.addEventListener('click', () => {
   urlItems = [];
   syncUrls();
   renderUrlPills();
-  urlInput.value = '';
+  document.getElementById('urlInput').value = '';
 });
 
-btnTogglePause.addEventListener('click', () => {});
-btnCancelJob.addEventListener('click', () => {});
-btnBackEditor.addEventListener('click', () => {});
+// ============================================================================
+// 1. SISTEMA DE FILA EM SEGUNDO PLANO (INTEGRAÇÃO COM O BACKGROUND)
+// ============================================================================
 
-// Main
-btnReport.addEventListener('click', async () => {
-	const urls = parseUrls(urlItems.join('\n'));
-	const valid = urls.filter(Boolean);
-	const invalid = urls.filter((u) => u === null).length;
+// Sincroniza a interface visual com o estado da fila no background
+function syncJobUi(job) {
+  const reportStatusCard = document.getElementById('reportStatusCard');
+  const badge = document.getElementById('reportStatusBadge');
+  const summary = document.getElementById('reportStatusSummary');
+  const current = document.getElementById('reportStatusCurrent');
 
-	if (!valid.length) {
-		alert(
-			'Nenhuma URL válida do YouTube encontrada.\n\nFormatos aceitos:\nhttps://www.youtube.com/watch?v=XXXXX\nhttps://youtu.be/XXXXX',
-		);
-		return;
-	}
+  // Se não tem job rodando, esconde o painel e mostra o botão de denunciar
+  if (!job || (!job.running && !job.paused && !job.cancelled && job.status !== 'Finalizado')) {
+      reportStatusCard.style.display = 'none';
+      btnReport.style.display = 'block';
+      return;
+  }
 
-	const reasonKey = reasonSel.value;
-	const reasonData = REASON_MAP[reasonKey];
-	const userComment = msgInput.value.trim();
+  // Se tem job, mostra o painel e esconde o botão
+  reportStatusCard.style.display = 'block';
+  btnReport.style.display = 'none';
 
-	okCount = 0;
-	failCount = 0;
-	done = 0;
-	total = valid.length;
-	logList.innerHTML = '';
-	progressWrap.classList.add('show');
-	summary.classList.remove('show');
-	btnReport.disabled = true;
-	btnReport.classList.add('running');
-	btnReport.textContent = `⏳ Processando 0 / ${total}...`;
-	progressFill.style.width = '0%';
+  badge.textContent = job.status || 'processando';
+  badge.className = 'status-badge ' + (job.paused ? 'paused' : job.cancelled ? 'error' : job.running ? 'running' : 'done');
 
-	if (invalid)
-		addLog('error', `${invalid} linha(s) ignorada(s) — URL inválida`, '');
+  summary.innerHTML = `Concluídos: <strong>${job.done || 0} de ${job.total || 0}</strong><br>` +
+                      `<span style="color: var(--green)">Sucesso: ${job.okCount || 0}</span> | ` +
+                      `<span style="color: var(--accent)">Falhas: ${job.failCount || 0}</span>`;
 
-	for (const url of valid) {
-		addLog('pending', 'Enviando denúncia...', url);
+  current.textContent = job.currentUrl ? `Atual: ${job.currentUrl.replace('https://www.youtube.com/watch?v=', '')}` : '';
 
-		let result;
-		try {
-			result = await new Promise((resolve) => {
-				chrome.runtime.sendMessage(
-					{ action: 'reportVideo', url, reasonData, userComment },
-					resolve,
-				);
-			});
-			if (chrome.runtime.lastError)
-				result = { success: false, error: chrome.runtime.lastError.message };
-		} catch (e) {
-			result = { success: false, error: e.message };
-		}
-
-		removePending();
-		done++;
-
-		if (result?.success) {
-			okCount++;
-			addLog('success', '✓ Denúncia enviada com sucesso', url);
-		} else {
-			failCount++;
-			addLog('error', `✗ ${result?.error || 'erro desconhecido'}`, url);
-		}
-
-		await saveToHistory(
-			url,
-			!!result?.success,
-			reasonData.label,
-			result?.error,
-		);
-		progressFill.style.width = Math.round((done / total) * 100) + '%';
-		btnReport.textContent = `⏳ Processando ${done} / ${total}...`;
-		await sleep(1200);
-	}
-
-	btnReport.disabled = false;
-	btnReport.classList.remove('running');
-	btnReport.textContent = '🚨 Denunciar todos os vídeos';
-	countOk.textContent = okCount;
-	countFail.textContent = failCount;
-	summary.classList.add('show');
-});
-
-function sleep(ms) {
-	return new Promise((r) => setTimeout(r, ms));
+  btnTogglePause.style.display = (job.running && !job.cancelled) ? 'block' : 'none';
+  btnTogglePause.textContent = job.paused ? '▶ Retomar' : '⏸ Pausar';
+  btnCancelJob.style.display = (job.running && !job.cancelled) ? 'block' : 'none';
+  btnBackEditor.style.display = (!job.running || job.cancelled) ? 'block' : 'none';
 }
 
-// 1. O que acontece quando clica no botão
+// Escuta as mudanças do background em tempo real
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.reportJob) {
+      syncJobUi(changes.reportJob.newValue);
+      if (!changes.reportJob.newValue?.running) renderHistory(); // Atualiza o histórico ao terminar
+  }
+});
+
+// Sincroniza ao abrir o popup
+chrome.storage.local.get('reportJob', (res) => {
+  syncJobUi(res.reportJob);
+});
+
+// Ações dos botões do painel de controle
+btnTogglePause.addEventListener('click', () => {
+  chrome.storage.local.get('reportJob', (res) => {
+      if (res.reportJob) {
+          chrome.storage.local.set({ reportJob: { ...res.reportJob, paused: !res.reportJob.paused }});
+      }
+  });
+});
+
+btnCancelJob.addEventListener('click', () => {
+  if(confirm('Deseja realmente cancelar o envio das denúncias?')) {
+      chrome.storage.local.get('reportJob', (res) => {
+          if (res.reportJob) {
+              chrome.storage.local.set({ reportJob: { ...res.reportJob, cancelled: true }});
+          }
+      });
+  }
+});
+
+btnBackEditor.addEventListener('click', () => {
+  chrome.storage.local.set({ reportJob: null });
+  syncJobUi(null);
+});
+
+// ENVIA AS URLs PARA A FILA INTELIGENTE DO BACKGROUND
+btnReport.addEventListener('click', () => {
+  const urls = parseUrls(urlItems.join('\n'));
+  const valid = urls.filter(Boolean);
+
+  if (!valid.length) {
+      alert('Nenhuma URL válida do YouTube encontrada na fila.');
+      return;
+  }
+
+  const reasonKey = reasonSel.value;
+  const reasonData = REASON_MAP[reasonKey];
+  const userComment = msgInput.value.trim();
+  const jobId = 'job_' + Date.now();
+
+  chrome.runtime.sendMessage({
+      action: 'startReportBatch',
+      jobId,
+      urls: valid,
+      reasonData,
+      userComment
+  });
+});
+
+// ============================================================================
+// 2. EXTRATOR DE CANAIS (A nossa super ferramenta)
+// ============================================================================
+
 document.getElementById('extractBtn').addEventListener('click', () => {
   const channelUrl = document.getElementById('channelUrl').value.trim();
   const statusDiv = document.getElementById('extractStatus');
@@ -498,36 +512,28 @@ document.getElementById('extractBtn').addEventListener('click', () => {
   statusDiv.textContent = 'Extraindo vídeos em segundo plano... Pode demorar, não feche o navegador.';
   document.getElementById('extractBtn').disabled = true;
 
-  // Apenas envia a ordem, não espera a resposta aqui!
   chrome.runtime.sendMessage({ action: 'extractChannelVideos', url: channelUrl });
 });
 
-// 2. O ouvinte que fica esperando o background avisar que terminou
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const statusDiv = document.getElementById('extractStatus');
 
   if (request.action === 'extractionComplete') {
     document.getElementById('extractBtn').disabled = false;
     
-    // Formata os IDs como URLs completas
     const urlsExtraidas = request.videos.map(id => `https://www.youtube.com/watch?v=${id}`);
     
-    // 🔥 FILTRO DE DUPLICADAS: Junta as antigas com as novas e remove repetições usando Set
+    // Filtro de duplicadas usando Set
     const tamanhoAntes = urlItems.length;
     urlItems = [...new Set([...urlItems, ...urlsExtraidas])];
     const adicionadas = urlItems.length - tamanhoAntes;
     const duplicadas = urlsExtraidas.length - adicionadas;
 
-    // Atualiza o aviso mostrando o que realmente aconteceu
     statusDiv.textContent = `${request.videos.length} extraídos: ${adicionadas} novos adicionados (${duplicadas} ignorados).`;
     
-    syncUrls();       // Salva na memória
-    renderUrlPills(); // Desenha na tela (vai mostrar o card verde otimizado!)
-    
-    // Limpa o input text
+    syncUrls();
+    renderUrlPills();
     document.getElementById('urlInput').value = '';
-    
-    // Limpa o backup
     chrome.storage.local.remove('lastExtractedVideos');
   }
 
@@ -537,26 +543,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// 3. Recupera caso o usuário feche e abra o popup no meio do processo
 chrome.storage.local.get(['lastExtractedVideos'], (result) => {
   if (result.lastExtractedVideos && result.lastExtractedVideos.length > 0) {
     const statusDiv = document.getElementById('extractStatus');
-    
-    // Formata os IDs como URLs completas
     const urlsExtraidas = result.lastExtractedVideos.map(id => `https://www.youtube.com/watch?v=${id}`);
     
-    // 🔥 FILTRO DE DUPLICADAS AQUI TAMBÉM
     urlItems = [...new Set([...urlItems, ...urlsExtraidas])];
-    
     syncUrls();
     renderUrlPills();
-    
     document.getElementById('urlInput').value = '';
     
     if (statusDiv) {
       statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados (duplicatas removidas)!`;
     }
-    
     chrome.storage.local.remove('lastExtractedVideos');
   }
 });
