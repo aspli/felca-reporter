@@ -36,7 +36,6 @@
       if (area !== 'local' || !changes.queuedVideos) return;
       const items = changes.queuedVideos.newValue || [];
       queuedVideoIds = new Set(items.map(item => item?.videoId).filter(Boolean));
-      refreshOpenDropdown();
     });
   }
 
@@ -44,7 +43,9 @@
     document.addEventListener('pointerdown', event => {
       if (!isVideoListPage()) return;
 
-      const button = event.target.closest('button[aria-label="Mais ações"], button[aria-label="More actions"]');
+      const button = event.target.closest(
+        'button[aria-label="Mais ações"], button[aria-label="More actions"], button[aria-label="Menu de ações"]'
+      );
       if (!button) return;
 
       const card = button.closest('ytd-rich-item-renderer, ytd-grid-video-renderer');
@@ -54,16 +55,24 @@
       if (!video) return;
 
       currentMenuVideo = video;
+
+      // Remove item antigo imediatamente ao abrir novo menu
+      removeOldItems();
+
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(refreshOpenDropdown, 40);
+      refreshTimer = window.setTimeout(refreshOpenDropdown, 150);
     }, true);
+  }
+
+  function removeOldItems() {
+    document.querySelectorAll('.' + ITEM_CLASS).forEach(el => el.remove());
   }
 
   function observeDropdowns() {
     const observer = new MutationObserver(() => {
       if (!isVideoListPage()) return;
       window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(refreshOpenDropdown, 80);
+      refreshTimer = window.setTimeout(refreshOpenDropdown, 200);
     });
 
     observer.observe(document.documentElement, {
@@ -78,7 +87,7 @@
   }
 
   function injectPlaylistButton() {
-    if (document.querySelector(`.${PLAYLIST_BTN_CLASS}`)) return;
+    if (document.querySelector('.' + PLAYLIST_BTN_CLASS)) return;
 
     const target = document.querySelector('#primary-inner, ytd-watch-metadata, #contents');
     if (!target) {
@@ -95,88 +104,77 @@
   }
 
   function getPlaylistButton() {
-    return document.querySelector(`.${PLAYLIST_BTN_CLASS}`);
+    return document.querySelector('.' + PLAYLIST_BTN_CLASS);
   }
 
-  function refreshOpenDropdown() {
+  function refreshOpenDropdown(attempt) {
+    if (attempt === undefined) attempt = 0;
+    let injected = false;
+
     document.querySelectorAll('tp-yt-iron-dropdown').forEach(dropdown => {
       if (!isDropdownVisible(dropdown)) return;
-      injectMenuItem(dropdown);
+      const list = dropdown.querySelector('tp-yt-paper-listbox');
+      if (list) { injectMenuItemIntoList(list); injected = true; }
     });
+
+    document.querySelectorAll('ytd-menu-popup-renderer').forEach(popup => {
+      if (!popup.offsetParent) return;
+      const list = popup.querySelector('tp-yt-paper-listbox');
+      if (list) { injectMenuItemIntoList(list); injected = true; }
+    });
+
+    // Retry se o listbox ainda nao estava pronto (race condition)
+    if (!injected && attempt < 5) {
+      window.setTimeout(function() { refreshOpenDropdown(attempt + 1); }, 100);
+    }
   }
 
-  function injectMenuItem(dropdown) {
-    if (!currentMenuVideo) return;
+  function injectMenuItemIntoList(list) {
+    if (!list || !currentMenuVideo) return;
 
-    const list = dropdown.querySelector('yt-list-view-model');
-    if (!list) return;
-
-    const existing = list.querySelector(`.${ITEM_CLASS}`);
-    if (existing) existing.remove();
+    // Remove item antigo antes de reinjetar (garante atualização do estado)
+    list.querySelectorAll('.' + ITEM_CLASS).forEach(el => el.remove());
 
     const menuVideo = currentMenuVideo;
     const isQueued = queuedVideoIds.has(menuVideo.videoId);
+    const labelText = isQueued ? 'Na fila da extensão' : 'Adicionar à fila da extensão';
 
-    const item = document.createElement('yt-list-item-view-model');
-    item.className = `yt-list-item-view-model ${ITEM_CLASS}`;
+    const item = document.createElement('div');
+    item.className = ITEM_CLASS + (isQueued ? ' is-added' : '');
     item.setAttribute('role', 'menuitem');
     item.dataset.videoId = menuVideo.videoId;
-    item.dataset.videoUrl = menuVideo.url;
-    item.dataset.videoTitle = menuVideo.title;
-    item.innerHTML = `
-      <div class="yt-list-item-view-model__layout-wrapper yt-list-item-view-model__container yt-list-item-view-model__container--compact yt-list-item-view-model__container--tappable yt-list-item-view-model__container--in-popup">
-        <div class="yt-list-item-view-model__main-container">
-          <div aria-hidden="true" class="yt-list-item-view-model__image-container yt-list-item-view-model__leading">
-            <span class="ytIconWrapperHost yt-list-item-view-model__accessory yt-list-item-view-model__image">
-              <span class="yt-icon-shape ytSpecIconShapeHost">
-                <div style="width:100%;height:100%;display:block;fill:currentcolor;">
-                  <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" focusable="false" aria-hidden="true" style="pointer-events:none;display:inherit;width:100%;height:100%;">
-                    <path d="M19 3H5c-1.1 0-2 .9-2 2v11h2V5h14v14h-9v2h9c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm-8 16H8v-3H6v3H3v2h3v3h2v-3h3v-2Z"></path>
-                  </svg>
-                </div>
-              </span>
-            </span>
-          </div>
-          <button type="button" class="ytButtonOrAnchorHost ytButtonOrAnchorButton yt-list-item-view-model__button-or-anchor">
-            <div class="yt-list-item-view-model__text-wrapper">
-              <div class="yt-list-item-view-model__title-wrapper">
-                <span class="yt-core-attributed-string yt-list-item-view-model__title yt-core-attributed-string--white-space-pre-wrap ${ITEM_LABEL_CLASS}" role="text">${isQueued ? 'Na fila da extensão' : 'Adicionar à fila da extensão'}</span>
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
-    `;
+    item.innerHTML =
+      '<div class="felca-item-inner">' +
+        '<span class="felca-item-icon">' +
+          '<svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 0 24 24" width="24" focusable="false" aria-hidden="true">' +
+            '<path d="M19 3H5c-1.1 0-2 .9-2 2v11h2V5h14v14h-9v2h9c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2Zm-8 16H8v-3H6v3H3v2h3v3h2v-3h3v-2Z" fill="currentColor"></path>' +
+          '</svg>' +
+        '</span>' +
+        '<span class="' + ITEM_LABEL_CLASS + '">' + labelText + '</span>' +
+      '</div>';
 
     let activated = false;
+
     const handleActivate = async event => {
       event.preventDefault();
+      event.stopImmediatePropagation();
       event.stopPropagation();
       if (activated || queuedVideoIds.has(menuVideo.videoId)) return;
       activated = true;
       await addVideoToQueue(menuVideo);
-      updateMenuItem(item, menuVideo.videoId);
-      refreshOpenDropdown();
+      const labelEl = item.querySelector('.' + ITEM_LABEL_CLASS);
+      if (labelEl) labelEl.textContent = 'Na fila da extensão';
+      item.classList.add('is-added');
     };
 
-    item.addEventListener('pointerdown', event => {
-      event.stopPropagation();
-    }, true);
-    item.addEventListener('pointerup', handleActivate, true);
+    item.addEventListener('mousedown', handleActivate, true);
+    item.addEventListener('touchstart', handleActivate, true);
     item.addEventListener('keydown', event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       handleActivate(event);
     }, true);
 
     list.appendChild(item);
-  }
-
-  function updateMenuItem(item, videoId) {
-    const label = item.querySelector(`.${ITEM_LABEL_CLASS}`);
-    if (!label) return;
-    const isQueued = queuedVideoIds.has(videoId);
-    label.textContent = isQueued ? 'Na fila da extensão' : 'Adicionar à fila da extensão';
-    item.classList.toggle('is-added', isQueued);
   }
 
   function isVideoListPage() {
@@ -336,7 +334,7 @@
         savedUrls: [...savedSet].join('\n')
       });
 
-      alert(`Playlist lida: ${urls.length} vídeo(s) encontrados. ${added} adicionados à fila${skipped ? `, ${skipped} já estavam na fila` : ''}.`);
+      alert('Playlist lida: ' + urls.length + ' vídeo(s) encontrados. ' + added + ' adicionados à fila' + (skipped ? ', ' + skipped + ' já estavam na fila' : '') + '.');
     } finally {
       playlistImporterRunning = false;
       if (button) {
@@ -372,23 +370,20 @@
     });
   }
 
-  function waitForPlaylistItems(timeoutMs = 1500) {
+  function waitForPlaylistItems(timeoutMs) {
+    if (timeoutMs === undefined) timeoutMs = 1500;
     return new Promise(resolve => {
       const start = Date.now();
-
       const tick = () => {
         const count = document.querySelectorAll(
           'ytd-playlist-video-renderer a#video-title[href*="/watch?v="], ytd-playlist-video-renderer a#thumbnail[href*="/watch?v="]'
         ).length;
-
         if (count > 0 || Date.now() - start >= timeoutMs) {
           resolve();
           return;
         }
-
         window.setTimeout(tick, 100);
       };
-
       tick();
     });
   }
@@ -398,40 +393,41 @@
 
     const style = document.createElement('style');
     style.id = STYLE_ID;
-    style.textContent = `
-      .${ITEM_CLASS} .yt-list-item-view-model__button-or-anchor {
-        width: 100%;
-        cursor: pointer;
-      }
-
-      .${ITEM_CLASS}.is-added .${ITEM_LABEL_CLASS} {
-        color: rgb(20, 168, 110);
-        font-weight: 600;
-      }
-
-      .${PLAYLIST_BTN_CLASS} {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin: 12px 0;
-        padding: 10px 14px;
-        border: 1px solid rgba(255, 45, 85, .5);
-        border-radius: 999px;
-        background: rgba(255, 45, 85, .12);
-        color: #fff;
-        font: 700 13px/1 'Arial', sans-serif;
-        cursor: pointer;
-      }
-
-      .${PLAYLIST_BTN_CLASS}:hover {
-        background: rgba(255, 45, 85, .18);
-      }
-
-      .${PLAYLIST_BTN_CLASS}.is-loading {
-        opacity: .75;
-        cursor: progress;
-      }
-    `;
+    style.textContent =
+      '.felca-queue-menu-item {' +
+        'display: flex; align-items: center;' +
+        'padding: 0; margin: 0; cursor: pointer; list-style: none;' +
+      '}' +
+      '.felca-item-inner, .felca-item-inner * { pointer-events: none; }' +
+      '.felca-item-inner {' +
+        'display: flex; align-items: center; gap: 16px;' +
+        'padding: 0 16px; height: 36px; width: 100%;' +
+        'font-family: Roboto, Arial, sans-serif;' +
+        'font-size: 1.4rem; font-weight: 400;' +
+        'color: var(--yt-spec-text-primary, #0f0f0f);' +
+        'box-sizing: border-box;' +
+      '}' +
+      '.felca-item-inner:hover {' +
+        'background: var(--yt-spec-badge-chip-background, rgba(0,0,0,.05));' +
+      '}' +
+      '.felca-item-icon {' +
+        'display: flex; align-items: center; justify-content: center;' +
+        'width: 24px; height: 24px; flex-shrink: 0;' +
+        'color: var(--yt-spec-text-primary, #0f0f0f);' +
+      '}' +
+      '.felca-queue-menu-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+      '.felca-queue-menu-item.is-added .felca-queue-menu-label { color: rgb(20, 168, 110); font-weight: 600; }' +
+      'ytd-menu-popup-renderer { max-height: none !important; }' +
+      'ytd-menu-popup-renderer tp-yt-paper-listbox { max-height: none !important; overflow: visible !important; }' +
+      '.felca-playlist-import-btn {' +
+        'display: inline-flex; align-items: center; justify-content: center;' +
+        'margin: 12px 0; padding: 10px 14px;' +
+        'border: 1px solid rgba(255,45,85,.5); border-radius: 999px;' +
+        'background: rgba(255,45,85,.12); color: #fff;' +
+        'font: 700 13px/1 Arial,sans-serif; cursor: pointer;' +
+      '}' +
+      '.felca-playlist-import-btn:hover { background: rgba(255,45,85,.18); }' +
+      '.felca-playlist-import-btn.is-loading { opacity: .75; cursor: progress; }';
 
     document.documentElement.appendChild(style);
   }
