@@ -108,13 +108,24 @@
     textarea::placeholder, .url-input::placeholder { color: var(--muted); }
 
     .url-input {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      outline: none;
+      font-family: 'Barlow', sans-serif;
       font-size: 12px;
-      padding: 10px 12px; resize: vertical; line-height: 1.6;
+      padding: 10px 12px;
+      transition: border-color .2s;
     }
+    .url-input:focus { border-color: var(--accent); }
+    .url-input::placeholder { color: var(--muted); }
+
     .url-pill-box {
       margin-top: 8px;
       min-height: 90px;
-      max-height: 160px;
+      max-height: 140px;
       overflow-y: auto;
       background: var(--card);
       border: 1px solid var(--border);
@@ -127,16 +138,17 @@
     }
     .url-pill-box::-webkit-scrollbar { width: 3px; }
     .url-pill-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
     .url-pill {
+      max-width: 100%;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      max-width: 100%;
-      border: 1px solid rgba(255,45,85,.35);
       background: rgba(255,45,85,.12);
+      border: 1px solid rgba(255,45,85,.35);
       color: var(--text);
       border-radius: 999px;
-      padding: 5px 9px;
+      padding: 4px 8px;
       font-size: 11px;
       line-height: 1.2;
     }
@@ -151,18 +163,19 @@
       background: transparent;
       color: var(--accent);
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1;
       padding: 0;
-      flex-shrink: 0;
     }
     .url-pill-remove:hover { opacity: .8; }
+
     .url-pill-empty {
       width: 100%;
       color: var(--muted);
       font-size: 11px;
       padding: 4px;
     }
+
     .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
     .url-actions {
@@ -367,6 +380,44 @@
     .fail .stat-num { color: var(--accent); }
     .stat-lbl { font-family: 'Barlow Condensed', sans-serif; font-size: 10px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; margin-top: 2px; }
 
+    /* Integration */
+    .integration-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .integration-box .field-label { margin-bottom: 8px; }
+    .integration-input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--text); padding: 10px 12px; font-family: 'Barlow', sans-serif; font-size: 12px; outline: none;
+      transition: border-color .2s;
+    }
+    .integration-input:focus { border-color: var(--accent); }
+    .integration-input::placeholder { color: var(--muted); }
+    .integration-hint { font-size: 10px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+    .integration-hint code { background: var(--bg); padding: 1px 4px; border-radius: 3px; font-family: monospace; }
+    .btn-fetch {
+      width: 100%; margin-top: 12px; padding: 11px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); border: none; border-radius: var(--radius);
+      color: #fff; cursor: pointer; font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      transition: transform .15s, box-shadow .15s; box-shadow: 0 4px 16px rgba(99,102,241,.25);
+    }
+    .btn-fetch:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(99,102,241,.4); }
+    .btn-fetch:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .fetch-status { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius); font-size: 12px; display: none; }
+    .fetch-status.show { display: block; }
+    .fetch-status.success { background: rgba(0,214,143,.08); border: 1px solid rgba(0,214,143,.25); color: var(--green); }
+    .fetch-status.error { background: rgba(255,45,85,.08); border: 1px solid rgba(255,45,85,.25); color: var(--accent); }
+    .fetch-status.loading { background: rgba(255,193,7,.08); border: 1px solid rgba(255,193,7,.25); color: var(--yellow); }
+    .fetched-list { margin-top: 12px; max-height: 150px; overflow-y: auto; }
+    .fetched-list::-webkit-scrollbar { width: 3px; }
+    .fetched-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+    .fetched-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg); border-radius: 6px; margin-bottom: 4px; font-size: 11px; }
+    .fetched-item:last-child { margin-bottom: 0; }
+    .fetched-item .url { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+    .fetched-item .status { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(0,214,143,.15); color: var(--green); }
+    .fetched-item .status.skip { background: rgba(255,193,7,.15); color: var(--yellow); }
+    .btn-add-all { width: 100%; margin-top: 12px; padding: 10px; background: var(--green); border: none; border-radius: var(--radius); color: #0d0d12; cursor: pointer; font-family: 'Barlow Condensed', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; transition: opacity .15s; }
+    .btn-add-all:hover { opacity: .9; }
+    .btn-add-all:disabled { opacity: .5; cursor: not-allowed; }
+
     /* History */
     .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .history-title { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
@@ -410,22 +461,20 @@
 
 <div class="tabs">
   <div class="tab active" data-tab="report">🚨 Denunciar</div>
+  <div class="tab" data-tab="integration">🔌 Integração</div>
   <div class="tab" data-tab="history">📋 Histórico</div>
 </div>
 
 <!-- Aba: Denunciar -->
 <div class="page active" id="page-report">
-  <div class="report-editor">
-    <div class="field-label">URLs dos vídeos</div>
-    <input id="urlInput" class="url-input" type="text"
-      placeholder="Cole uma URL e pressione Enter" />
-    <div id="urlPillBox" class="url-pill-box">
-      <div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>
-    </div>
-    <div class="url-actions">
-      <button class="btn-clear" id="btnClearList" type="button">Limpar lista</button>
-    </div>
-    <div class="hint">Pressione Enter para adicionar. Cole várias URLs em linhas separadas se preferir.</div>
+
+  <div class="field-label">URLs dos vídeos</div>
+  <input id="urlInput" class="url-input" type="text"
+    placeholder="Cole uma URL e pressione Enter" />
+  <div id="urlPillBox" class="url-pill-box">
+    <div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>
+  </div>
+  <div class="hint">Pressione Enter a cada URL — cada linha vira um pill</div>
 
     <div class="spacer"></div>
     <div class="field-label">Motivo da denúncia</div>
@@ -488,6 +537,28 @@
     <strong>Como funciona:</strong> Cada vídeo é aberto em segundo plano e a denúncia é enviada usando sua sessão do YouTube. A mensagem acima é incluída no relatório. Nenhum dado vai a terceiros.
   </div>
 
+</div>
+
+<!-- Aba: Integração -->
+<div class="page" id="page-integration">
+  <div class="field-label">Endpoint de vídeos</div>
+  <div class="integration-box">
+    <div class="field-label" style="margin-bottom:8px">URL do endpoint</div>
+    <input id="endpointUrl" class="integration-input" type="text" 
+      placeholder="http://localhost:3000/videos" 
+      value="http://localhost:3000/videos" />
+    <div class="integration-hint">
+      A extensão fará um <code>GET</code> nesta URL e espera um JSON com o formato:<br>
+      <code>{ "videos": ["https://youtube.com/watch?v=...", "..."] }</code>
+    </div>
+    <button id="btnFetch" class="btn-fetch">🔍 Buscar vídeos</button>
+    <div id="fetchStatus" class="fetch-status"></div>
+    <div id="fetchedList" class="fetched-list"></div>
+    <button id="btnAddAll" class="btn-add-all" style="display:none">➕ Adicionar à lista de denúncias</button>
+  </div>
+  <div class="info-box" style="margin-top:14px">
+    <strong>Como usar:</strong> Configure um servidor local que exponha os vídeos a serem denunciados. Ao clicar em "Buscar vídeos", a extensão consulta o endpoint e carrega as URLs automaticamente.
+  </div>
 </div>
 
 <!-- Aba: Histórico -->

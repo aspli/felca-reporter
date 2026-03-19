@@ -1,41 +1,24 @@
 {
-  "manifest_version": 3,
-  "name": "FELCA Reporter",
-  "version": "4.0.0",
-  "description": "Denuncie vídeos +18 sem restrição de idade no YouTube, conforme a Lei nº 15.211/2025 (Lei Felca).",
-  "permissions": [
-    "scripting",
-    "storage",
-    "tabs"
-  ],
-  "host_permissions": [
-    "https://www.youtube.com/*"
-  ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
-  },
-  "background": {
-    "service_worker": "background.js"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://www.youtube.com/*"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  }
+	"manifest_version": 3,
+	"name": "FELCA Reporter",
+	"version": "4.0.1",
+	"description": "Denuncie vídeos +18 sem restrição de idade no YouTube, conforme a Lei nº 15.211/2025 (Lei Felca).",
+	"permissions": ["scripting", "storage", "tabs"],
+	"host_permissions": ["https://www.youtube.com/*", "http://localhost/*", "https://localhost/*"],
+	"action": {
+		"default_popup": "popup.html",
+		"default_icon": {
+			"16": "icons/icon16.png",
+			"48": "icons/icon48.png",
+			"128": "icons/icon128.png"
+		}
+	},
+	"background": {
+		"service_worker": "background.js"
+	},
+	"icons": {
+		"16": "icons/icon16.png",
+		"48": "icons/icon48.png",
+		"128": "icons/icon128.png"
+	}
 }
