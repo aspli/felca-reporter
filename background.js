@@ -624,4 +624,11 @@ async function extractVideosInPageContext() {
   }
 }
 
+// Espera um tempo aleatório entre min e max milissegundos
+function randomSleep(minMs, maxMs) {
+  const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+  console.log(`⏳ Humanização: Aguardando ${(ms / 1000).toFixed(1)} segundos...`);
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
