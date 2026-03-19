@@ -142,6 +142,8 @@ async function handleReportBatch(jobId, urls, reasonData, userComment) {
       lastError: result.success ? null : result.error,
       lastMessage: result.success ? 'Concluído com sucesso' : result.error
     });
+
+    await randomSleep(20000, 35000);
   }
 
   const finalJob = await setReportJobState(jobId, {
