@@ -400,8 +400,17 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'extractChannelVideos') {
     extractViaBackgroundTab(request.url)
-      .then(videos => sendResponse({ videos }))
-      .catch(error => sendResponse({ error: error.message }));
+      .then(videos => {
+        // Salva os vídeos no banco de dados local da extensão!
+        chrome.storage.local.set({ lastExtractedVideos: videos }, () => {
+          // Tenta responder ao popup (se ele ainda estiver aberto)
+          try { sendResponse({ videos }); } catch(e) {}
+        });
+      })
+      .catch(error => {
+        try { sendResponse({ error: error.message }); } catch(e) {}
+      });
+      
     return true; // Mantém a porta aberta para a resposta assíncrona
   }
 });
