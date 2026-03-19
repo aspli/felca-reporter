@@ -232,22 +232,52 @@ function syncUrls() {
 }
 
 function renderUrlPills() {
-	if (!urlItems.length) {
-		urlPillBox.innerHTML =
-			'<div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>';
-		return;
-	}
+  if (!urlItems.length) {
+    urlPillBox.innerHTML =
+      '<div class="url-pill-empty">Nenhuma URL adicionada ainda.</div>';
+    return;
+  }
 
-	urlPillBox.innerHTML = urlItems
-		.map(
-			(url, idx) => `
+  // NOVA LÓGICA: Exibe um card condensado se houver muitas URLs (Evita o bug visual e travamentos)
+  if (urlItems.length > 50) {
+    urlPillBox.innerHTML = `
+      <div style="width: 100%; text-align: center; padding: 15px 10px; color: var(--green);">
+        <div style="font-size: 24px; font-weight: bold; font-family: 'Barlow Condensed', sans-serif;">
+          📦 ${urlItems.length} Vídeos na Fila
+        </div>
+        <div style="font-size: 11px; margin-top: 5px; color: var(--muted);">
+          A visualização detalhada em pills foi ocultada para não travar a tela.<br>
+          Os links já estão prontos na memória para a denúncia.
+        </div>
+        <button type="button" id="btnLimparPillsOcultas" class="btn-clear" style="margin-top: 10px;">Limpar Fila Oculta</button>
+      </div>
+    `;
+
+    // Adiciona o ouvinte para o botão de limpar, já que as pills de remover individuais não estarão lá
+    const btnLimpar = document.getElementById('btnLimparPillsOcultas');
+    if (btnLimpar) {
+      btnLimpar.addEventListener('click', () => {
+        if (confirm('Deseja apagar todas as URLs da fila oculta?')) {
+          urlItems = [];
+          syncUrls();
+          renderUrlPills();
+        }
+      });
+    }
+    return;
+  }
+
+  // Lógica original: Exibe as pills normalmente para quantidades menores
+  urlPillBox.innerHTML = urlItems
+    .map(
+      (url, idx) => `
     <div class="url-pill" title="${url}">
       <span class="url-pill-text">${url}</span>
       <button type="button" class="url-pill-remove" data-index="${idx}" aria-label="Remover URL">×</button>
     </div>
   `,
-		)
-		.join('');
+    )
+    .join('');
 }
 
 urlPillBox.addEventListener('click', (e) => {
