@@ -1,18 +1,32 @@
 // FELCA Reporter — background.js (v17 — usa /flag/flag com flagAction, suporte a subOpções)
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.action === 'reportVideo') {
-    handleReport(msg.url, msg.reasonData, msg.userComment)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
-  }
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'extractChannelVideos') {
+    
+    // Começa a extrair, mas não prende o popup
+    extractViaBackgroundTab(request.url)
+      .then(videos => {
+        // Salva no banco de dados local por segurança
+        chrome.storage.local.set({ lastExtractedVideos: videos });
+        
+        // Avisa ativamente o popup que terminou (se o popup estiver aberto)
+        chrome.runtime.sendMessage({ 
+          action: 'extractionComplete', 
+          videos: videos 
+        }).catch(() => {
+          // Ignora o erro se o usuário tiver fechado o popup
+          console.log("Popup estava fechado, mas os vídeos foram salvos no storage.");
+        });
+      })
+      .catch(error => {
+        chrome.runtime.sendMessage({ 
+          action: 'extractionError', 
+          error: error.message 
+        }).catch(() => {});
+      });
 
-  if (msg.action === 'startReportBatch') {
-    handleReportBatch(msg.jobId, msg.urls, msg.reasonData, msg.userComment)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
+    // Avisa o Chrome que recebemos a mensagem, mas não vamos segurar a porta aberta
+    sendResponse({ status: "started" }); 
   }
 });
 
