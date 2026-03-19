@@ -505,21 +505,27 @@ document.getElementById('extractBtn').addEventListener('click', () => {
 // 2. O ouvinte que fica esperando o background avisar que terminou
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const statusDiv = document.getElementById('extractStatus');
-  const urlsTextarea = document.getElementById('urlInput');
 
   if (request.action === 'extractionComplete') {
     document.getElementById('extractBtn').disabled = false;
-    statusDiv.textContent = `${request.videos.length} vídeos extraídos com sucesso!`;
     
-    const urls = request.videos.map(id => `https://www.youtube.com/watch?v=${id}`);
-    const currentText = urlsTextarea.value.trim();
+    // Formata os IDs como URLs completas
+    const urlsExtraidas = request.videos.map(id => `https://www.youtube.com/watch?v=${id}`);
     
-    // Injeta os links
-    urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
+    // 🔥 FILTRO DE DUPLICADAS: Junta as antigas com as novas e remove repetições usando Set
+    const tamanhoAntes = urlItems.length;
+    urlItems = [...new Set([...urlItems, ...urlsExtraidas])];
+    const adicionadas = urlItems.length - tamanhoAntes;
+    const duplicadas = urlsExtraidas.length - adicionadas;
+
+    // Atualiza o aviso mostrando o que realmente aconteceu
+    statusDiv.textContent = `${request.videos.length} extraídos: ${adicionadas} novos adicionados (${duplicadas} ignorados).`;
     
-    // 🔥 A CORREÇÃO ESTÁ AQUI: Força o disparo do evento para criar os balõezinhos (pills)
-    urlsTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-    urlsTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+    syncUrls();       // Salva na memória
+    renderUrlPills(); // Desenha na tela (vai mostrar o card verde otimizado!)
+    
+    // Limpa o input text
+    document.getElementById('urlInput').value = '';
     
     // Limpa o backup
     chrome.storage.local.remove('lastExtractedVideos');
@@ -534,21 +540,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // 3. Recupera caso o usuário feche e abra o popup no meio do processo
 chrome.storage.local.get(['lastExtractedVideos'], (result) => {
   if (result.lastExtractedVideos && result.lastExtractedVideos.length > 0) {
-    const urlsTextarea = document.getElementById('urlInput');
     const statusDiv = document.getElementById('extractStatus');
     
-    const urls = result.lastExtractedVideos.map(id => `https://www.youtube.com/watch?v=${id}`);
-    const currentText = urlsTextarea.value.trim();
+    // Formata os IDs como URLs completas
+    const urlsExtraidas = result.lastExtractedVideos.map(id => `https://www.youtube.com/watch?v=${id}`);
     
-    // Injeta os links
-    urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
+    // 🔥 FILTRO DE DUPLICADAS AQUI TAMBÉM
+    urlItems = [...new Set([...urlItems, ...urlsExtraidas])];
     
-    // 🔥 A CORREÇÃO ESTÁ AQUI TAMBÉM
-    urlsTextarea.dispatchEvent(new Event('input', { bubbles: true }));
-    urlsTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+    syncUrls();
+    renderUrlPills();
+    
+    document.getElementById('urlInput').value = '';
     
     if (statusDiv) {
-      statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados da extração anterior!`;
+      statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados (duplicatas removidas)!`;
     }
     
     chrome.storage.local.remove('lastExtractedVideos');
