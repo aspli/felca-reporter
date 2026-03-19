@@ -475,7 +475,7 @@ document.getElementById('extractBtn').addEventListener('click', () => {
 // 2. O ouvinte que fica esperando o background avisar que terminou
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const statusDiv = document.getElementById('extractStatus');
-  const urlsTextarea = document.getElementById('urlPillBox');
+  const urlsTextarea = document.getElementById('urlInput');
 
   if (request.action === 'extractionComplete') {
     document.getElementById('extractBtn').disabled = false;
@@ -483,7 +483,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     const urls = request.videos.map(id => `https://www.youtube.com/watch?v=${id}`);
     const currentText = urlsTextarea.value.trim();
+    
+    // Injeta os links
     urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
+    
+    // 🔥 A CORREÇÃO ESTÁ AQUI: Força o disparo do evento para criar os balõezinhos (pills)
+    urlsTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    urlsTextarea.dispatchEvent(new Event('change', { bubbles: true }));
     
     // Limpa o backup
     chrome.storage.local.remove('lastExtractedVideos');
@@ -495,24 +501,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Recupera vídeos extraídos caso o popup tenha sido fechado durante o processo
+// 3. Recupera caso o usuário feche e abra o popup no meio do processo
 chrome.storage.local.get(['lastExtractedVideos'], (result) => {
   if (result.lastExtractedVideos && result.lastExtractedVideos.length > 0) {
     const urlsTextarea = document.getElementById('urlInput');
     const statusDiv = document.getElementById('extractStatus');
     
-    // Formata os vídeos salvos
     const urls = result.lastExtractedVideos.map(id => `https://www.youtube.com/watch?v=${id}`);
     const currentText = urlsTextarea.value.trim();
     
-    // Injeta na caixa de texto
+    // Injeta os links
     urlsTextarea.value = currentText ? currentText + '\n' + urls.join('\n') : urls.join('\n');
     
+    // 🔥 A CORREÇÃO ESTÁ AQUI TAMBÉM
+    urlsTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    urlsTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+    
     if (statusDiv) {
-      statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados da última extração!`;
+      statusDiv.textContent = `${result.lastExtractedVideos.length} vídeos recuperados da extração anterior!`;
     }
     
-    // Limpa o storage para não duplicar os links na próxima vez que abrir o popup
     chrome.storage.local.remove('lastExtractedVideos');
   }
 });
