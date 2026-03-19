@@ -475,7 +475,7 @@ document.getElementById('extractBtn').addEventListener('click', () => {
 // 2. O ouvinte que fica esperando o background avisar que terminou
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const statusDiv = document.getElementById('extractStatus');
-  const urlsTextarea = document.getElementById('urlInput');
+  const urlsTextarea = document.getElementById('urlPillBox');
 
   if (request.action === 'extractionComplete') {
     document.getElementById('extractBtn').disabled = false;
