@@ -30,6 +30,10 @@ const countFail = document.getElementById('countFail');
 const historyList = document.getElementById('historyList');
 const btnClear = document.getElementById('btnClear');
 const urlPillBox = document.getElementById('urlPillBox');
+const btnClearJob = document.getElementById('btnClearJob');
+const btnTogglePause = document.getElementById('btnTogglePause');
+const btnCancelJob = document.getElementById('btnCancelJob');
+const btnBackEditor = document.getElementById('btnBackEditor');
 
 // Integration elements
 const endpointUrlInput = document.getElementById('endpointUrl');
@@ -337,7 +341,7 @@ function renderHistory() {
 				return `<div class="history-item ${item.success ? 'ok' : 'fail'}">
         <div class="history-icon">${item.success ? '✅' : '❌'}</div>
         <div class="history-body">
-          <span class="history-url" title="${item.url}">${shortUrlText}</span>
+          <span class="history-url" title="${item.url}">${shortUrl}</span>
           <div class="history-meta">
             <span>${date}</span>
             <span class="history-tag">${item.reason}</span>
@@ -356,13 +360,17 @@ btnClear.addEventListener('click', () => {
 	}
 });
 
-btnClearList.addEventListener('click', () => {
+btnClearJob.addEventListener('click', () => {
   if (!confirm('Limpar toda a lista de URLs?')) return;
   urlItems = [];
   syncUrls();
   renderUrlPills();
   urlInput.value = '';
 });
+
+btnTogglePause.addEventListener('click', () => {});
+btnCancelJob.addEventListener('click', () => {});
+btnBackEditor.addEventListener('click', () => {});
 
 // Main
 btnReport.addEventListener('click', async () => {
