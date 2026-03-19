@@ -1,14 +1,17 @@
 // FELCA Reporter — background.js (v17 — usa /flag/flag com flagAction, suporte a subOpções)
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   
+  // 1. Denúncia individual (Ainda precisa de resposta assíncrona)
   if (msg.action === 'reportVideo') {
     handleReport(msg.url, msg.reasonData, msg.userComment)
       .then(result => sendResponse(result))
       .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
+    return true; // Mantém a porta aberta apenas para esta função
   }
 
+  // 2. Extração de Canal
   if (msg.action === 'extractChannelVideos') {
+    // Inicia o processo em background solto, sem prender o popup
     extractViaBackgroundTab(msg.url)
       .then(videos => {
         chrome.storage.local.set({ lastExtractedVideos: videos });
@@ -25,14 +28,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       });
 
     sendResponse({ status: "started" }); 
-    return true; // Mantém a porta aberta
+    return false; // Diz ao Chrome para fechar a porta de comunicação na hora
   }
 
+  // 3. Fila de Denúncias em Lote
   if (msg.action === 'startReportBatch') {
+    // Inicia a fila gigante no background sem prender o popup
     handleReportBatch(msg.jobId, msg.urls, msg.reasonData, msg.userComment)
-      .then(result => sendResponse(result))
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
+      .catch(err => console.error("Erro no batch:", err));
+      
+    sendResponse({ status: "started" });
+    return false; // Fecha a porta de comunicação na hora
   }
 });
 
