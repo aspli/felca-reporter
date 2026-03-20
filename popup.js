@@ -452,7 +452,14 @@ chrome.storage.local.get('reportJob', (res) => {
 btnTogglePause.addEventListener('click', () => {
   chrome.storage.local.get('reportJob', (res) => {
       if (res.reportJob) {
-          chrome.storage.local.set({ reportJob: { ...res.reportJob, paused: !res.reportJob.paused }});
+          const isPaused = res.reportJob.paused;
+          // Inverte o estado
+          chrome.storage.local.set({ reportJob: { ...res.reportJob, paused: !isPaused }});
+          
+          // Se estava pausado e agora vai rodar, manda o sinal pra acordar o script
+          if (isPaused) {
+              chrome.runtime.sendMessage({ action: 'resumeBatch' });
+          }
       }
   });
 });
