@@ -40,6 +40,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     sendResponse({ status: "started" });
     return false; // Fecha a porta de comunicação na hora
   }
+
+  if (msg.action === 'resumeBatch') {
+    chrome.storage.local.get('reportJob', (res) => {
+      if (res.reportJob && !res.reportJob.cancelled) {
+        handleReportBatch(res.reportJob.jobId, res.reportJob.urls, res.reportJob.reasonData, res.reportJob.userComment, res.reportJob.done || 0);
+      }
+    });
+    sendResponse({ status: "resuming" });
+    return false;
+  }
+
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'respawnBatch') {
+    chrome.storage.local.get('reportJob', (res) => {
+      if (res.reportJob && res.reportJob.running && !res.reportJob.paused && !res.reportJob.cancelled) {
+        console.log("⏰ Alarme tocou! Retomando a fila do vídeo: " + res.reportJob.done);
+        handleReportBatch(res.reportJob.jobId, res.reportJob.urls, res.reportJob.reasonData, res.reportJob.userComment, res.reportJob.done || 0);
+      }
+    });
+  }
 });
 
 async function handleReport(url, reasonData, userComment) {
@@ -73,62 +95,53 @@ async function handleReport(url, reasonData, userComment) {
   }
 }
 
-async function handleReportBatch(jobId, urls, reasonData, userComment) {
+async function handleReportBatch(jobId, urls, reasonData, userComment, startIndex = 0) {
   if (!Array.isArray(urls) || !urls.length) {
     return { success: false, error: 'Nenhuma URL para processar' };
   }
 
+  // 1. Agora nós salvamos a lista 'urls' inteira no banco para evitar amnésia
   await setReportJobState(jobId, {
+    urls: urls, 
+    reasonData: reasonData,
+    userComment: userComment,
     running: true,
     paused: false,
     cancelled: false,
-    total: urls.length,
-    done: 0,
-    okCount: 0,
-    failCount: 0,
-    currentUrl: '',
-    status: 'Iniciando...'
+    total: urls.length
   });
 
-  let okCount = 0;
-  let failCount = 0;
+  const { reportJob } = await chrome.storage.local.get('reportJob');
+  let okCount = reportJob?.okCount || 0;
+  let failCount = reportJob?.failCount || 0;
+  
+  // Marca a hora que o script acordou
+  const startTime = Date.now();
 
-  for (let index = 0; index < urls.length; index++) {
+  for (let index = startIndex; index < urls.length; index++) {
+    
+    // 🚨 O PULO DO GATO: Se passou 4 minutos (240.000 ms), ele agenda o renascimento e desliga graciosamente.
+    if (Date.now() - startTime > 240000) {
+      console.log("⏱️ Limite de tempo do Chrome próximo. Pausando e agendando auto-respawn...");
+      chrome.alarms.create('respawnBatch', { delayInMinutes: 0.1 }); // Acorda em ~6 segundos
+      return { success: true, status: 'respawning' };
+    }
+
     const gate = await waitForBatchGate(jobId);
     if (gate === 'cancelled') {
       const cancelledJob = await setReportJobState(jobId, {
-        running: false,
-        paused: false,
-        cancelled: true,
-        status: 'Cancelado',
-        currentUrl: '',
-        done: index,
-        okCount,
-        failCount,
-        finishedAt: Date.now()
+        running: false, paused: false, cancelled: true, status: 'Cancelado',
+        currentUrl: '', done: index, okCount, failCount, finishedAt: Date.now()
       });
-      return {
-        success: false,
-        cancelled: true,
-        jobId,
-        total: urls.length,
-        okCount,
-        failCount,
-        reportJob: cancelledJob
-      };
+      return { success: false, cancelled: true, jobId, total: urls.length, okCount, failCount, reportJob: cancelledJob };
     }
 
     const url = urls[index];
     const step = index + 1;
 
     await setReportJobState(jobId, {
-      currentUrl: url,
-      status: `Processando ${step} de ${urls.length}...`,
-      done: index,
-      okCount,
-      failCount,
-      running: true,
-      cancelled: false
+      currentUrl: url, status: `Processando ${step} de ${urls.length}...`,
+      done: index, okCount, failCount, running: true, cancelled: false
     });
 
     const result = await handleReport(url, reasonData, userComment);
@@ -138,38 +151,21 @@ async function handleReportBatch(jobId, urls, reasonData, userComment) {
     await saveToHistory(url, !!result.success, reasonData.label, result.error);
 
     await setReportJobState(jobId, {
-      currentUrl: url,
-      status: result.success ? 'Denúncia enviada' : 'Falha na denúncia',
-      done: step,
-      okCount,
-      failCount,
-      running: true,
-      cancelled: false,
-      lastError: result.success ? null : result.error,
-      lastMessage: result.success ? 'Concluído com sucesso' : result.error
+      currentUrl: url, status: result.success ? 'Denúncia enviada' : 'Falha na denúncia',
+      done: step, okCount, failCount, running: true, cancelled: false,
+      lastError: result.success ? null : result.error, lastMessage: result.success ? 'Concluído com sucesso' : result.error
     });
 
-    await randomSleep(20000, 35000);
+    // O nosso delay humanizado continua aqui
+    await randomSleep(20000, 35000); 
   }
 
   const finalJob = await setReportJobState(jobId, {
-    running: false,
-    currentUrl: '',
-    status: 'Finalizado',
-    done: urls.length,
-    okCount,
-    failCount,
-    finishedAt: Date.now()
+    running: false, currentUrl: '', status: 'Finalizado',
+    done: urls.length, okCount, failCount, finishedAt: Date.now()
   });
 
-  return {
-    success: true,
-    jobId,
-    total: urls.length,
-    okCount,
-    failCount,
-    reportJob: finalJob
-  };
+  return { success: true, jobId, total: urls.length, okCount, failCount, reportJob: finalJob };
 }
 
 async function waitForBatchGate(jobId) {
